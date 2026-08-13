@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ILSAS - 3D Campus Navigation</title>
+
+  <!-- MapLibre GL JS CSS -->
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- Premium Splash Screen -->
+  <div id="splash-screen" class="splash-screen">
+    <div class="splash-bg-glow"></div>
+    <div class="splash-card">
+      <div class="splash-logo-wrapper">
+        <svg class="splash-logo-svg" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M50 15C33.4 15 20 28.4 20 45C20 56.2 26.1 66 35.2 71.2V80C35.2 82.2 37 84 39.2 84H60.8C63 84 64.8 82.2 64.8 80V71.2C73.9 66 80 56.2 80 45C80 28.4 66.6 15 50 15ZM50 21C63.3 21 74 31.7 74 45C74 54.3 68.7 62.3 60.8 66.3L58.8 67.3V78H41.2V67.3L39.2 66.3C31.3 62.3 26 54.3 26 45C26 31.7 36.7 21 50 21Z" fill="#e11d48"/>
+          <path d="M52 25L32 50H48L42 75L68 45H50L52 25Z" fill="#e11d48"/>
+        </svg>
+      </div>
+      <div class="splash-brand">IL<span>SAS</span></div>
+      <div class="splash-tagline">TNB Integrated Learning Solution</div>
+      <div class="splash-badge">Campus Navigation</div>
+      <div class="splash-progress-bar">
+        <div class="splash-progress-fill"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Block Selection Modal (Appears after Splash Screen) -->
+  <div id="block-select-modal" class="block-select-modal">
+    <div class="block-select-header">
+      <h2 class="block-select-title">Select Destination</h2>
+      <p class="block-select-subtitle">Choose a block to navigate</p>
+    </div>
+    <div class="block-cards-grid">
+      <div class="block-choice-card" onclick="chooseInitialBlock('block_a')">
+        <div class="block-icon-letter">A</div>
+        <div class="block-card-name">Block A</div>
+      </div>
+      <div class="block-choice-card" onclick="chooseInitialBlock('block_b')">
+        <div class="block-icon-letter">B</div>
+        <div class="block-card-name">Block B</div>
+      </div>
+      <div class="block-choice-card" onclick="chooseInitialBlock('block_c')">
+        <div class="block-icon-letter">C</div>
+        <div class="block-card-name">Block C</div>
+      </div>
+      <div class="block-choice-card" onclick="chooseInitialBlock('block_d')">
+        <div class="block-icon-letter">D</div>
+        <div class="block-card-name">Block D</div>
+      </div>
+      <div class="block-choice-card" onclick="chooseInitialBlock('ldc')">
+        <div class="block-icon-letter">LDC</div>
+        <div class="block-card-name">LDC</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mode Status Indicator (Clickable to Toggle Modes) -->
+  <div id="mode-indicator" class="mode-indicator">Mode: Live GPS</div>
+
+  <!-- Interior View Badge -->
+  <div id="interior-badge" class="interior-badge">
+    <span id="interior-badge-title">Block C &middot; Interior View</span>
+    <span class="interior-badge-hint">Walk out of the building to exit</span>
+  </div>
+
+  <!-- Interior View Suggestion Popup -->
+  <div id="interior-suggest" class="interior-suggest">
+    <span id="interior-suggest-text">Interior view available for <strong id="interior-suggest-name"></strong></span>
+    <button id="interior-suggest-btn" type="button">View Interior</button>
+    <button id="interior-suggest-close" type="button" aria-label="Dismiss">&times;</button>
+  </div>
+
+  <!-- Out-of-Bounds Warning Banner -->
+  <div id="oob-banner" class="oob-banner">
+    <span>You are outside the mapped campus area. Position clamped.</span>
+    <button id="oob-dismiss" type="button">&times;</button>
+  </div>
+
+  <!-- Left Joystick (Movement) for Manual Mode -->
+  <div id="joystick-left" class="joystick-container">
+    <div id="joystick-thumb-left" class="joystick-thumb"></div>
+  </div>
+
+  <!-- Right Joystick (Rotation) for Manual Mode -->
+  <div id="joystick-right" class="joystick-container">
+    <div id="joystick-thumb-right" class="joystick-thumb"></div>
+  </div>
+
+  <!-- Side Panel Button -->
+  <button id="sidebar-toggle" class="sidebar-toggle-btn" title="Locations">
+    ☰
+  </button>
+
+  <!-- Side Panel Container -->
+  <div id="side-panel" class="side-panel">
+    <div class="side-panel-title">Campus Locations</div>
+    <ul id="location-list" class="location-list">
+      <li class="location-item" data-key="block_a">🏢 Block A</li>
+      <li class="location-item" data-key="block_b">🏢 Block B</li>
+      <li class="location-item" data-key="block_c">🏢 Block C</li>
+      <li class="location-item" data-key="block_d">🏢 Block D</li>
+      <li class="location-item" data-key="block_e">🏢 Block E</li>
+      <li class="location-item" data-key="block_f">🏢 Block F</li>
+      <li class="location-item" data-key="ldc">🏢 LDC</li>
+      <li class="location-item" data-key="dewan_makan">🍽️ Dewan Makan</li>
+      <li class="location-item" data-key="auditorium">🎭 Auditorium</li>
+      <li class="location-item" data-key="cafe_zamrud">☕ Cafe Zamrud</li>
+      <li class="location-item" data-key="one_stop_center">ℹ️ One Stop Center</li>
+      <li class="location-item" data-key="pejabat_pengurusan">🏛️ Pejabat Pengurusan</li>
+      <li class="location-item" data-key="irc">📚 IRC</li>
+      <li class="location-item" data-key="balai_islam">🕌 Balai Islam</li>
+      <li class="location-item" data-key="anggerik">🏡 Anggerik</li>
+      <li class="location-item" data-key="melur">🏡 Melur</li>
+      <li class="location-item" data-key="cempaka">🏡 Cempaka</li>
+      <li class="location-item" data-key="mawar">🏡 Mawar</li>
+      <li class="location-item" data-key="seroja">🏡 Seroja</li>
+      <li class="location-item" data-key="dahlia">🏡 Dahlia</li>
+    </ul>
+  </div>
+
+  <!-- Search Bar & Legends Dropdown -->
+  <div class="search-container">
+    <input 
+      type="text" 
+      id="search-input" 
+      class="search-input" 
+      placeholder="Search location..." 
+      autocomplete="off" 
+    />
+    <div id="search-results" class="search-results"></div>
+    
+    <div style="position: relative;">
+      <button id="legends-toggle-btn" class="legends-toggle-btn">
+        <div class="legends-btn-content">
+          <svg class="legends-btn-icon" viewBox="0 0 24 24">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          <span>Map Legends</span>
+        </div>
+        <svg class="legends-chevron" viewBox="0 0 24 24">
+          <path d="M7 10l5 5 5-5z"/>
+        </svg>
+      </button>
+
+      <div id="legends-popup" class="legends-popup">
+        <div class="legend-item"><div class="legend-color-box" style="background: #e11d48;"></div> Red Marker (Block A, D, LDC)</div>
+        <div class="legend-item"><div class="legend-color-box" style="background: #1e3a8a;"></div> Navy Marker (Block B)</div>
+        <div class="legend-item"><div class="legend-color-box" style="background: #2563eb;"></div> Blue Marker (Cafes)</div>
+        <div class="legend-item"><div class="legend-color-box" style="background: #e11d48; border-radius: 50%;"></div> User GPS Position</div>
+        <div class="legend-item"><div class="legend-color-box" style="background: #38bdf8; height: 3px; border-radius: 1px;"></div> Animated Route Line</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Radial Bearing Slider -->
+  <div class="bearing-control-container">
+    <input type="range" id="bearing-slider" class="bearing-slider" min="-180" max="180" value="-14" />
+  </div>
+
+  <!-- Gallery Toggle Button (Bottom-Left Corner) -->
+  <button id="gallery-toggle-btn" class="gallery-toggle-btn" title="Location Gallery">
+    <svg viewBox="0 0 24 24">
+      <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+    </svg>
+  </button>
+
+  <!-- Gallery Popup Panel (Bottom-Left) -->
+  <div id="gallery-panel" class="gallery-panel">
+    <div class="gallery-header">
+      <h3 id="gallery-title" class="gallery-title">Location Gallery</h3>
+      <button id="gallery-close-btn" class="gallery-close-btn">&times;</button>
+    </div>
+    <div id="gallery-container" class="gallery-container"></div>
+  </div>
+
+  <!-- Fullscreen Lightbox Modal -->
+  <div id="image-modal" class="image-modal">
+    <button id="modal-close-btn" class="modal-close-btn">&times;</button>
+    <div class="modal-content-container">
+      <button id="modal-prev-btn" class="modal-nav-btn modal-nav-prev">&#10094;</button>
+      <img id="modal-img" class="modal-img" src="" alt="Expanded View" />
+      <button id="modal-next-btn" class="modal-nav-btn modal-nav-next">&#10095;</button>
+    </div>
+    <div class="modal-info-bar">
+      <div id="modal-caption" class="modal-caption"></div>
+      <div id="modal-counter" class="modal-counter"></div>
+    </div>
+  </div>
+
+  <div id="map"></div>
+
+  <!-- MapLibre GL JS -->
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <!-- Campus Data -->
+  <script src="campus-data.js"></script>
+  <!-- App Logic -->
+  <script src="app.js"></script>
+</body>
+</html>
