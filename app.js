@@ -2,6 +2,9 @@
     const INITIAL_ZOOM = 19.5;
     const DEFAULT_BEARING = 220;
     const DEFAULT_PITCH = 60; // FPV mode default pitch
+    // Debug-only shortcuts (Pong, reset-to-start, teleports) are enabled with ?debug=1
+    // so accidental keypresses can't disrupt a public visitor's tour.
+    const DEBUG_MODE = new URLSearchParams(location.search).has('debug');
 
     let currentUserCoords = [...START_COORDINATE];
 
@@ -28,6 +31,8 @@
     // FPV selection intro dive variables
     const LOCK_PITCH = 80;           // over-shoulder framing pitch for the intro dive
     let cameraFocusDiving = false;   // protects the dive animation
+    let introFrameHeld = false;      // holds the post-dive framing until the user translates
+    let introHoldCoords = null;      // position captured when the dive framing was held
 
     const modeIndicator = document.getElementById('mode-indicator');
     const joystickLeft = document.getElementById('joystick-left');
@@ -49,6 +54,8 @@
     // Interior View Suggestion Popup State
     const SUGGEST_RADIUS_M = 30;       // suggest when within this many meters of the footprint
     const SUGGEST_HYSTERESIS_M = 5;    // must leave radius + this before a dismissed popup returns
+    const INTERIOR_TRIGGER_RADIUS_M = 12;      // auto-enter interior within this many meters (GPS-friendly)
+    const INTERIOR_TRIGGER_HYSTERESIS_M = 6;   // leave radius + this before auto-interior exits
     let interiorSuggestionDismissed = false;
     let manualInteriorView = false;    // interior entered via the suggestion popup toggle
 
@@ -151,17 +158,6 @@
     }
 
     // --- INTERIOR VIEW (ANY SELECTED BUILDING) ---
-    function pointInPolygon(lng, lat, ring) {
-      let inside = false;
-      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-        const xi = ring[i][0], yi = ring[i][1];
-        const xj = ring[j][0], yj = ring[j][1];
-        const intersect = ((yi > lat) !== (yj > lat)) &&
-          (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
-        if (intersect) inside = !inside;
-      }
-      return inside;
-    }
 
     // Stylized floor plan derived at runtime from a building's ACTUAL footprint: the
     // interior slab follows the exact footprint shape (inset), and the room grid is
@@ -325,14 +321,6 @@
       });
     }
 
-    function isInsideSelectedBuilding() {
-      if (!selectedLocationKey) return false;
-      const feature = buildingFeature(selectedLocationKey);
-      if (!feature) return false;
-      const ring = feature.geometry.coordinates[0];
-      return pointInPolygon(currentUserCoords[0], currentUserCoords[1], ring);
-    }
-
     // Planar point-to-footprint distance in meters (equirectangular approximation).
     function distanceToBuildingMeters(blockKey) {
       const feature = buildingFeature(blockKey);
@@ -374,7 +362,7 @@
     }
 
     function updateInteriorSuggestion() {
-      if (!selectedLocationKey || controlMode === 'manual') {
+      if (!selectedLocationKey || controlMode === 'manual' || !isFPVEnabled) {
         hideInteriorSuggestion();
         return;
       }
@@ -404,7 +392,7 @@
         exitInteriorView();
         return;
       }
-      if (!selectedLocationKey) return;
+      if (!selectedLocationKey || !isFPVEnabled) return;
       resetCameraFollow();
       manualInteriorView = true;
       enterInteriorView(selectedLocationKey);
@@ -417,6 +405,7 @@
     });
 
     function enterInteriorView(blockKey) {
+      if (!isFPVEnabled) return;
       if (isInteriorView && interiorBlockKey === blockKey) return;
       isInteriorView = true;
       interiorBlockKey = blockKey;
@@ -477,11 +466,17 @@
     }
 
     function updateInteriorView() {
-      if (isInsideSelectedBuilding()) {
+      const dist = distanceToBuildingMeters(selectedLocationKey);
+      if (isInteriorView && !manualInteriorView &&
+          dist <= INTERIOR_TRIGGER_RADIUS_M + INTERIOR_TRIGGER_HYSTERESIS_M) {
+        // Auto-entered interior stays until the user leaves radius + hysteresis.
+        return;
+      }
+      if (dist <= INTERIOR_TRIGGER_RADIUS_M) {
         manualInteriorView = false;
         enterInteriorView(selectedLocationKey);
       } else if (isInteriorView && manualInteriorView &&
-                 distanceToBuildingMeters(selectedLocationKey) <= SUGGEST_RADIUS_M + SUGGEST_HYSTERESIS_M) {
+                 dist <= SUGGEST_RADIUS_M + SUGGEST_HYSTERESIS_M) {
         // Interior entered via the popup toggle stays until the user exits or leaves the radius.
       } else if (isInteriorView) {
         exitInteriorView();
@@ -1017,13 +1012,37 @@
       }
       if (!isFPVEnabled) return;
       if (cameraFocusDiving) return;
+      // The intro dive framing survives device orientation and camera rotation changes
+      // and is only released when the user actually translates.
+      if (introFrameHeld) {
+        if (introHoldCoords &&
+            currentUserCoords[0] === introHoldCoords[0] &&
+            currentUserCoords[1] === introHoldCoords[1]) {
+          return;
+        }
+        introFrameHeld = false;
+        introHoldCoords = null;
+      }
       updateFPVCamera();
     }
 
     function resetCameraFollow() {
       cameraFocusDiving = false;
+      introFrameHeld = false;
+      introHoldCoords = null;
     }
 
+
+    function resetToOverview() {
+      map.flyTo({
+        center: DEFAULT_CENTER,
+        zoom: 16.3,
+        pitch: 0,
+        bearing: -14,
+        duration: 1000,
+        essential: true
+      });
+    }
 
     function toggleFPVMode(enabled) {
       if (!enabled && isInteriorView) exitInteriorView();
@@ -1041,13 +1060,9 @@
           duration: 1000
         });
       } else {
-        map.easeTo({
-          pitch: 0,
-          bearing: -14,
-          zoom: 16.3,
-          duration: 1000
-        });
+        resetToOverview();
       }
+      updateInteriorSuggestion();
     }
 
     const compassBtn = document.querySelector('.maplibregl-ctrl-compass');
@@ -1061,14 +1076,7 @@
           resetCameraFollow();
           updateFPVCamera();
         } else {
-          map.flyTo({
-            center: DEFAULT_CENTER,
-            zoom: 16.3,
-            pitch: 0,
-            bearing: -14,
-            duration: 1000,
-            essential: true
-          });
+          resetToOverview();
         }
       }, true);
     }
@@ -1093,7 +1101,7 @@
           const card = document.createElement('div');
           card.className = 'gallery-card';
           card.innerHTML = `
-            <img src="${img.url}" alt="${img.caption}" loading="lazy" />
+            <img src="${img.url}" alt="${img.caption}" loading="lazy" onerror="this.style.display='none'" />
             <div class="gallery-card-caption">${img.caption}</div>
           `;
           card.addEventListener('click', () => openLightboxModal(locationKey, index));
@@ -1130,6 +1138,10 @@
 
     let currentModalImages = [];
     let currentModalIndex = 0;
+
+    // Graceful fallback for hotlinked images that fail to load.
+    modalImg.addEventListener('load', () => { modalImg.style.display = ''; });
+    modalImg.addEventListener('error', () => { modalImg.style.display = 'none'; });
 
     function openLightboxModal(locationKey, startIndex) {
       const location = BLOCKS[locationKey];
@@ -1430,10 +1442,12 @@
 
         // --- CAMERA INTRO DIVE UPON SELECTION IN FPV MODE ---
         // One-shot cinematic dive into the over-shoulder framing (user foreground,
-        // target behind). After it lands, normal FPV follow takes over on movement;
-        // there is no continued re-targeting of the selected building.
+        // target behind). The framing is held through device/camera orientation changes
+        // and only released when the user translates, handing over to normal FPV follow.
         if (isFPVEnabled && !isInteriorView) {
           cameraFocusDiving = true;
+          introFrameHeld = false;
+          introHoldCoords = null;
           const lockedKey = selectedKey;
 
           const bearingToTarget = calculateBearing(
@@ -1455,6 +1469,10 @@
           map.once('moveend', () => {
             if (selectedLocationKey !== lockedKey) return;
             cameraFocusDiving = false;
+            if (isFPVEnabled) {
+              introFrameHeld = true;
+              introHoldCoords = [...currentUserCoords];
+            }
           });
         }
       }
@@ -1752,12 +1770,14 @@
       const key = e.key.toLowerCase();
 
       if (key === 'z') {
+        if (!DEBUG_MODE) return;
         e.preventDefault();
         togglePong();
         return;
       }
 
       if (key === 't') {
+        if (!DEBUG_MODE) return;
         e.preventDefault();
         currentUserCoords = [...START_COORDINATE];
         userMarker.setLngLat(currentUserCoords);
@@ -1776,7 +1796,7 @@
         return;
       }
 
-      if (controlMode === 'manual' && TELEPORT_COORDINATES[key]) {
+      if (controlMode === 'manual' && DEBUG_MODE && TELEPORT_COORDINATES[key]) {
         e.preventDefault();
         currentUserCoords = [...TELEPORT_COORDINATES[key]];
         userMarker.setLngLat(currentUserCoords);
