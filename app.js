@@ -491,26 +491,14 @@
     let wasOutOfBounds = false;
     let oobDismissed = false;
 
-    const GPS_SMOOTH_ALPHA_MIN = 0.12; // responsive to small real movements
-    const GPS_SMOOTH_ALPHA_MAX = 0.18;  // dampens GPS spikes aggressively
     const GPS_SPIKE_THRESHOLD = 0.00007;  // ~7m — catch GPS multipath repositioning
-    const GPS_SPIKE_ALPHA = 0.05;        // heavy suppression for extreme multipath jumps
-    const GPS_DEADBAND = 0.0000135;     // ~1.5m in degrees (matches real phone accuracy)
-    const GPS_LERP_PER_FRAME = 0.08;    // interpolation factor per frame toward GPS target
-    const ON_NETWORK_THRESHOLD = GPS_DEADBAND * 4; // from path -> hide helper line
-
-    // Static detection: freeze marker when user is stationary
-    const STATIC_FREEZE_SECONDS = 3;                    // freeze after this many seconds of no significant movement
-    const STATIC_UNFREEZE_THRESHOLD = GPS_DEADBAND * 3; // ~4.5m — must move this far to unfreeze
-    let gpsFrozen = false;
-    let lastSignificantMoveTime = performance.now();
+    const ON_NETWORK_THRESHOLD = 0.000054; // ~6m — from path -> hide helper line
 
     // Camera deadband: only pan when marker moves beyond this distance
     const CAMERA_DEADBAND_M = 8;                        // camera pans when marker moves beyond this (meters)
     let cameraCenter = [...START_COORDINATE];           // last position camera was centered on
 
     let targetCoords = [...START_COORDINATE];  // GPS-filtered destination
-    let lastGpsFixTime = performance.now();     // timestamp of last GPS fix
 
     function updateOutOfBoundsState(out) {
       if (!out) {
@@ -574,45 +562,27 @@
         return;
       }
 
-      // EMA-smooth toward the raw fix to filter GPS noise, updating the *target*
-      // position. The RAF loop interpolates currentUserCoords toward this target.
-      const dx = clampedLng - targetCoords[0];
-      const dy = clampedLat - targetCoords[1];
+      // Spike filter: suppress sudden jumps from bad GPS readings
+      const dx = clampedLng - currentUserCoords[0];
+      const dy = clampedLat - currentUserCoords[1];
       const dist = Math.hypot(dx, dy);
 
-      // Static detection: freeze marker when user is stationary
-      if (dist > STATIC_UNFREEZE_THRESHOLD) {
-        lastSignificantMoveTime = performance.now();
-        if (gpsFrozen) {
-          gpsFrozen = false;
-        }
-      } else if (dist <= GPS_DEADBAND) {
-        if (!gpsFrozen && (performance.now() - lastSignificantMoveTime) > STATIC_FREEZE_SECONDS * 1000) {
-          gpsFrozen = true;
-          targetCoords[0] = currentUserCoords[0];
-          targetCoords[1] = currentUserCoords[1];
-        }
+      if (dist > GPS_SPIKE_THRESHOLD) {
+        updateHeadingAvailability();
+        return;
       }
 
-      if (dist > GPS_DEADBAND) {
-        let alpha;
-        if (dist > GPS_SPIKE_THRESHOLD) {
-          alpha = GPS_SPIKE_ALPHA;
-        } else if (dist < GPS_DEADBAND * 2) {
-          alpha = 0.02; // near-zero for small deltas — dampens static jitter
-        } else {
-          alpha = Math.min(GPS_SMOOTH_ALPHA_MAX, GPS_SMOOTH_ALPHA_MIN +
-            (dist / GPS_DEADBAND) * 0.10);
-        }
-        targetCoords[0] += dx * alpha;
-        targetCoords[1] += dy * alpha;
-        lastGpsFixTime = performance.now();
-
-        updateStraightLine();
-        updateNearestEntryMarker();
-        updateActiveRouteLine();
-        updateInteriorView();
-      }
+      // Snap directly to raw GPS fix
+      currentUserCoords[0] = clampedLng;
+      currentUserCoords[1] = clampedLat;
+      targetCoords[0] = clampedLng;
+      targetCoords[1] = clampedLat;
+      userMarker.setLngLat(currentUserCoords);
+      updateVisionConeOrientation();
+      updateStraightLine();
+      updateNearestEntryMarker();
+      updateActiveRouteLine();
+      updateInteriorView();
 
       updateHeadingAvailability();
     }
@@ -1093,10 +1063,8 @@
       }
       // Top-down: track user position in both modes
       if (!isFPVEnabled) {
-        if (distanceBetweenCoords(currentUserCoords, cameraCenter) > CAMERA_DEADBAND_M) {
-          cameraCenter = [...currentUserCoords];
-          map.jumpTo({ center: currentUserCoords, pitch: 0 });
-        }
+        cameraCenter = [...currentUserCoords];
+        map.jumpTo({ center: currentUserCoords, pitch: 0 });
         return;
       }
 
@@ -1119,7 +1087,8 @@
         introFrameHeld = false;
         introHoldCoords = null;
       }
-      // GPS + FPV: only pan if marker moved beyond deadband
+      // GPS + FPV: always update bearing, only pan if marker moved beyond deadband
+      map.jumpTo({ bearing: userHeading });
       if (distanceBetweenCoords(currentUserCoords, cameraCenter) > CAMERA_DEADBAND_M) {
         cameraCenter = [...currentUserCoords];
         updateFPVCamera();
@@ -1957,20 +1926,11 @@
     });
 
     function handleMovementLoop() {
-      // --- GPS INTERPOLATION (runs every frame in GPS mode) ---
-      // Lerps currentUserCoords toward the EMA-filtered targetCoords so the marker
-      // and camera glide smoothly at 60 Hz between GPS fixes (1-5 Hz).
-      if (controlMode === 'gps' && gpsInitialized && !gpsFrozen) {
-        const dx = targetCoords[0] - currentUserCoords[0];
-        const dy = targetCoords[1] - currentUserCoords[1];
-        if (dx !== 0 || dy !== 0) {
-          currentUserCoords[0] += dx * GPS_LERP_PER_FRAME;
-          currentUserCoords[1] += dy * GPS_LERP_PER_FRAME;
-          userMarker.setLngLat(currentUserCoords);
-          updateVisionConeOrientation();
-          followCamera();
-          checkArrival();
-        }
+      // --- GPS MODE (runs every frame) ---
+      // Marker already positioned by applyGpsFix; just update camera and arrival.
+      if (controlMode === 'gps' && gpsInitialized) {
+        followCamera();
+        checkArrival();
       }
 
       if (controlMode === 'manual' && !pongActive) {
