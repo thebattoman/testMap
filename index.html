@@ -63,7 +63,7 @@
   </div>
 
   <!-- Mode Status Indicator (Clickable to Toggle Modes) -->
-  <div id="mode-indicator" class="mode-indicator">Mode: Live GPS</div>
+  <div id="mode-indicator" class="mode-indicator">Mode: Live GPS<span class="gps-recalibrate" title="Recalibrate GPS">&#x21bb;</span></div>
 
   <!-- Interior View Badge -->
   <div id="interior-badge" class="interior-badge">
@@ -71,12 +71,17 @@
     <span class="interior-badge-hint">Walk out of the building to exit</span>
   </div>
 
-  <!-- Interior View Suggestion Popup -->
-  <div id="interior-suggest" class="interior-suggest">
-    <span id="interior-suggest-text">Interior view available for <strong id="interior-suggest-name"></strong></span>
-    <button id="interior-suggest-btn" type="button">View Interior</button>
-    <button id="interior-suggest-close" type="button" aria-label="Dismiss">&times;</button>
-  </div>
+  <!-- Interior Entry Icon -->
+  <button id="interior-entry-icon" type="button" aria-label="Enter Building Interior">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M3 21h18"/>
+      <path d="M5 21V7l7-4 7 4v14"/>
+      <path d="M9 21v-6h6v6"/>
+    </svg>
+  </button>
+
+  <!-- Arrival Notification -->
+  <div id="arrival-notification" class="arrival-notification">You have arrived</div>
 
   <!-- Out-of-Bounds Warning Banner -->
   <div id="oob-banner" class="oob-banner">
@@ -101,7 +106,14 @@
 
   <!-- Side Panel Container -->
   <div id="side-panel" class="side-panel">
-    <div class="side-panel-title">Campus Locations</div>
+    <div class="side-panel-brand">
+      <svg class="side-panel-logo" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M50 15C33.4 15 20 28.4 20 45C20 56.2 26.1 66 35.2 71.2V80C35.2 82.2 37 84 39.2 84H60.8C63 84 64.8 82.2 64.8 80V71.2C73.9 66 80 56.2 80 45C80 28.4 66.6 15 50 15ZM50 21C63.3 21 74 31.7 74 45C74 54.3 68.7 62.3 60.8 66.3L58.8 67.3V78H41.2V67.3L39.2 66.3C31.3 62.3 26 54.3 26 45C26 31.7 36.7 21 50 21Z" fill="#e11d48"/>
+        <path d="M52 25L32 50H48L42 75L68 45H50L52 25Z" fill="#e11d48"/>
+      </svg>
+      <div class="side-panel-title">IL<span>SAS</span></div>
+    </div>
+    <div class="side-panel-subtitle">Campus Locations</div>
     <ul id="location-list" class="location-list">
       <li class="location-item" data-key="block_a">🏢 Block A</li>
       <li class="location-item" data-key="block_b">🏢 Block B</li>
@@ -143,7 +155,7 @@
           <svg class="legends-btn-icon" viewBox="0 0 24 24">
             <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
           </svg>
-          <span>Map Legends</span>
+          <span>Icon Legends</span>
         </div>
         <svg class="legends-chevron" viewBox="0 0 24 24">
           <path d="M7 10l5 5 5-5z"/>
@@ -151,11 +163,11 @@
       </button>
 
       <div id="legends-popup" class="legends-popup">
-        <div class="legend-item"><div class="legend-color-box" style="background: #e11d48;"></div> Red Marker (Block A, D, LDC)</div>
-        <div class="legend-item"><div class="legend-color-box" style="background: #1e3a8a;"></div> Navy Marker (Block B)</div>
-        <div class="legend-item"><div class="legend-color-box" style="background: #2563eb;"></div> Blue Marker (Cafes)</div>
-        <div class="legend-item"><div class="legend-color-box" style="background: #e11d48; border-radius: 50%;"></div> User GPS Position</div>
-        <div class="legend-item"><div class="legend-color-box" style="background: #38bdf8; height: 3px; border-radius: 1px;"></div> Animated Route Line</div>
+        <div class="legend-item"><div class="legend-icon-box">&#9776;</div> Menu (Locations)</div>
+        <div class="legend-item"><div class="legend-icon-box"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg></div> Gallery</div>
+        <div class="legend-item"><div class="legend-icon-box"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4-3c-.83 0-1.5-.67-1.5-1.5S18.67 9 19.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg></div> Manual Controller</div>
+        <div class="legend-item"><div class="legend-icon-box"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></div> FPV Toggle</div>
+        <div class="legend-item"><div class="legend-icon-box"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="12 2 12 12 17.5 7" fill="currentColor"/></svg></div> Compass (Recenter)</div>
       </div>
     </div>
   </div>
@@ -164,6 +176,13 @@
   <div class="bearing-control-container">
     <input type="range" id="bearing-slider" class="bearing-slider" min="-180" max="180" value="-14" />
   </div>
+
+  <!-- Manual Mode Toggle Button (Bottom-Left, above Gallery) -->
+  <button id="manual-mode-btn" class="manual-mode-btn" title="Toggle Manual Controller">
+    <svg viewBox="0 0 24 24">
+      <path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4-3c-.83 0-1.5-.67-1.5-1.5S18.67 9 19.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
+    </svg>
+  </button>
 
   <!-- Gallery Toggle Button (Bottom-Left Corner) -->
   <button id="gallery-toggle-btn" class="gallery-toggle-btn" title="Location Gallery">

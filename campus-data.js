@@ -3,7 +3,7 @@
       [101.737937, 2.979556]  
     ];
 
-    const START_COORDINATE = [101.7364682, 2.9763841];
+    const START_COORDINATE = [101.735697, 2.976514];
 
     const TELEPORT_COORDINATES = {
       q: [101.734520, 2.976259],
@@ -21,7 +21,7 @@
           "properties": {
             "blockKey": "block_a",
             "height": 18,
-            "color": "#e11d48"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -56,7 +56,7 @@
           "properties": {
             "blockKey": "block_b",
             "height": 18,
-            "color": "#1e3a8a"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -91,7 +91,7 @@
           "properties": {
             "blockKey": "block_c",
             "height": 20,
-            "color": "#2563eb"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -126,7 +126,7 @@
           "properties": {
             "blockKey": "block_d",
             "height": 16,
-            "color": "#e11d48"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -177,7 +177,7 @@
           "properties": {
             "blockKey": "ldc",
             "height": 22,
-            "color": "#e11d48"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -268,7 +268,7 @@
           "properties": {
             "blockKey": "dewan_makan",
             "height": 12,
-            "color": "#1e3a8a"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -327,7 +327,7 @@
           "properties": {
             "blockKey": "auditorium",
             "height": 14,
-            "color": "#e11d48"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -398,7 +398,7 @@
           "properties": {
             "blockKey": "cafe_zamrud",
             "height": 8,
-            "color": "#2563eb"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -433,7 +433,7 @@
           "properties": {
             "blockKey": "one_stop_center",
             "height": 12,
-            "color": "#1e3a8a"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -468,7 +468,7 @@
           "properties": {
             "blockKey": "pejabat_pengurusan",
             "height": 14,
-            "color": "#1e3a8a"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -503,7 +503,7 @@
           "properties": {
             "blockKey": "irc",
             "height": 12,
-            "color": "#1e3a8a"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -538,7 +538,7 @@
           "properties": {
             "blockKey": "block_e",
             "height": 16,
-            "color": "#1e3a8a"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -573,7 +573,7 @@
           "properties": {
             "blockKey": "block_f",
             "height": 14,
-            "color": "#1e3a8a"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -640,7 +640,7 @@
           "properties": {
             "blockKey": "anggerik",
             "height": 12,
-            "color": "#1e3a8a"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -679,7 +679,7 @@
           "properties": {
             "blockKey": "melur",
             "height": 12,
-            "color": "#1e3a8a"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -718,7 +718,7 @@
           "properties": {
             "blockKey": "cempaka",
             "height": 12,
-            "color": "#1e3a8a"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -753,7 +753,7 @@
           "properties": {
             "blockKey": "balai_islam",
             "height": 10,
-            "color": "#1e3a8a"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -804,7 +804,7 @@
           "properties": {
             "blockKey": "mawar",
             "height": 12,
-            "color": "#1e3a8a"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -839,7 +839,7 @@
           "properties": {
             "blockKey": "seroja",
             "height": 12,
-            "color": "#1e3a8a"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -874,7 +874,7 @@
           "properties": {
             "blockKey": "dahlia",
             "height": 12,
-            "color": "#1e3a8a"
+            "color": "#bfdbfe"
           },
           "geometry": {
             "type": "Polygon",
@@ -918,11 +918,14 @@
           "geometry": {
             "type": "LineString",
             "coordinates": [
-              [101.7364682, 2.9763841],
-              [101.7371933, 2.9765872],
-              [101.7370537, 2.9772802],
-              [101.7372255, 2.9773462],
-              [101.73721, 2.9773967]
+              [101.735757,2.976489],
+              [101.735775,2.97641],
+              [101.735794,2.976341],
+              [101.735849,2.976169],
+              [101.737196,2.976548],
+              [101.737069,2.977273],
+              [101.737226,2.977314],
+              [101.737208,2.977383]
             ]
           }
         }
@@ -938,10 +941,13 @@
           "geometry": {
             "type": "LineString",
             "coordinates": [
-              [101.7364682, 2.9763841],
-              [101.7358639, 2.9762219],
-              [101.735898, 2.9760764],
-              [101.7359662, 2.9761104]
+              [101.735757,2.976489],
+              [101.735775,2.97641],
+              [101.735794,2.976341],
+              [101.735849,2.976169],
+              [101.735768,2.976133],
+              [101.735774,2.976063],
+              [101.735926,2.9761]
             ]
           }
         }
@@ -957,11 +963,12 @@
           "geometry": {
             "type": "LineString",
             "coordinates": [
-              [101.7364682, 2.9763841],
-              [101.7358635, 2.9762251],
-              [101.7359508, 2.9758734],
-              [101.7356111, 2.9757886],
-              [101.7356256, 2.975714]
+              [101.735757,2.976489],
+              [101.735849,2.976169],
+              [101.735773,2.976134],
+              [101.735786,2.976049],
+              [101.735285,2.975907],
+              [101.735355,2.975648]
             ]
           }
         }
@@ -977,12 +984,11 @@
           "geometry": {
             "type": "LineString",
             "coordinates": [
-              [101.7364682, 2.9763841],
-              [101.7358646, 2.9762229],
-              [101.7358778, 2.9761752],
-              [101.7357623, 2.9761357],
-              [101.7357805, 2.9760632],
-              [101.735642, 2.9760121]
+              [101.735757,2.976489],
+              [101.735849,2.976169],
+              [101.735773,2.976134],
+              [101.735786,2.976049],
+              [101.735671,2.976017]
             ]
           }
         }
@@ -998,10 +1004,9 @@
           "geometry": {
             "type": "LineString",
             "coordinates": [
-              [101.7364682, 2.9763841],
-              [101.7358696, 2.9762236],
-              [101.7358271, 2.9763907],
-              [101.7355625, 2.9762996]
+              [101.735757,2.976489],
+              [101.735799,2.97634],
+              [101.73571,2.976312]
             ]
           }
         }
@@ -1012,7 +1017,7 @@
       block_a: { 
         name: 'Block A', 
         coords: [101.735391, 2.976143], 
-        color: '#e11d48',
+        color: '#bfdbfe',
         entries: [
           [101.735724, 2.976320],
           [101.735013, 2.976135]
@@ -1027,7 +1032,7 @@
       block_b: { 
         name: 'Block B', 
         coords: [101.735354, 2.975841], 
-        color: '#1e3a8a',
+        color: '#bfdbfe',
         entries: [
           [101.735681, 2.976012],
           [101.734997, 2.975817]
@@ -1041,7 +1046,7 @@
       block_c: { 
         name: 'Block C', 
         coords: [101.735346, 2.975565], 
-        color: '#2563eb',
+        color: '#bfdbfe',
         entries: [
           [101.734976, 2.975551],
           [101.735660, 2.975723]
@@ -1054,8 +1059,8 @@
       },
       block_d: { 
         name: 'Block D', 
-        coords: [101.736545, 2.976093], 
-        color: '#e11d48',
+        coords: [101.736019, 2.975956], 
+        color: '#bfdbfe',
         entries: [
           [101.735922, 2.976149],
           [101.736319, 2.976299]
@@ -1068,7 +1073,7 @@
       ldc: { 
         name: 'LDC', 
         coords: [101.737089, 2.977553], 
-        color: '#e11d48',
+        color: '#bfdbfe',
         entries: [
           [101.73721, 2.9773967]
         ],
@@ -1081,7 +1086,7 @@
       dewan_makan: {
         name: 'Dewan Makan',
         coords: [101.736413, 2.976076],
-        color: '#1e3a8a',
+        color: '#bfdbfe',
         entries: [],
         route: null,
         images: [
@@ -1092,7 +1097,7 @@
       auditorium: {
         name: 'Auditorium',
         coords: [101.735415, 2.976567],
-        color: '#e11d48',
+        color: '#bfdbfe',
         entries: [],
         route: null,
         images: [
@@ -1103,7 +1108,7 @@
       cafe_zamrud: {
         name: 'Cafe Zamrud',
         coords: [101.736110, 2.977309],
-        color: '#2563eb',
+        color: '#bfdbfe',
         entries: [],
         route: null,
         images: [
@@ -1114,7 +1119,7 @@
       one_stop_center: {
         name: 'One Stop Center',
         coords: [101.735748, 2.976494],
-        color: '#1e3a8a',
+        color: '#bfdbfe',
         entries: [],
         route: null,
         images: [
@@ -1125,7 +1130,7 @@
       pejabat_pengurusan: {
         name: 'Pejabat Pengurusan',
         coords: [101.736145, 2.976751],
-        color: '#1e3a8a',
+        color: '#bfdbfe',
         entries: [],
         route: null,
         images: []
@@ -1133,7 +1138,7 @@
       irc: {
         name: 'IRC',
         coords: [101.736644, 2.976326],
-        color: '#1e3a8a',
+        color: '#bfdbfe',
         entries: [],
         route: null,
         images: []
@@ -1141,7 +1146,7 @@
       block_e: {
         name: 'Block E',
         coords: [101.735724, 2.975028],
-        color: '#1e3a8a',
+        color: '#bfdbfe',
         entries: [],
         route: null,
         images: []
@@ -1149,7 +1154,7 @@
       block_f: {
         name: 'Block F',
         coords: [101.735448, 2.974524],
-        color: '#1e3a8a',
+        color: '#bfdbfe',
         entries: [],
         route: null,
         images: []
@@ -1157,7 +1162,7 @@
       anggerik: {
         name: 'Anggerik',
         coords: [101.736829, 2.976834],
-        color: '#1e3a8a',
+        color: '#bfdbfe',
         entries: [],
         route: null,
         images: []
@@ -1165,7 +1170,7 @@
       melur: {
         name: 'Melur',
         coords: [101.736915, 2.976380],
-        color: '#1e3a8a',
+        color: '#bfdbfe',
         entries: [],
         route: null,
         images: []
@@ -1173,7 +1178,7 @@
       cempaka: {
         name: 'Cempaka',
         coords: [101.736730, 2.975151],
-        color: '#1e3a8a',
+        color: '#bfdbfe',
         entries: [],
         route: null,
         images: []
@@ -1181,7 +1186,7 @@
       balai_islam: {
         name: 'Balai Islam',
         coords: [101.735316, 2.973488],
-        color: '#1e3a8a',
+        color: '#bfdbfe',
         entries: [],
         route: null,
         images: []
@@ -1189,7 +1194,7 @@
       mawar: {
         name: 'Mawar',
         coords: [101.736585, 2.974477],
-        color: '#1e3a8a',
+        color: '#bfdbfe',
         entries: [],
         route: null,
         images: []
@@ -1197,7 +1202,7 @@
       seroja: {
         name: 'Seroja',
         coords: [101.737269, 2.974649],
-        color: '#1e3a8a',
+        color: '#bfdbfe',
         entries: [],
         route: null,
         images: []
@@ -1205,7 +1210,7 @@
       dahlia: {
         name: 'Dahlia',
         coords: [101.737038, 2.974044],
-        color: '#1e3a8a',
+        color: '#bfdbfe',
         entries: [],
         route: null,
         images: []

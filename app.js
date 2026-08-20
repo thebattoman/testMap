@@ -7,6 +7,8 @@
     const DEBUG_MODE = new URLSearchParams(location.search).has('debug');
 
     let currentUserCoords = [...START_COORDINATE];
+    let gpsInitialized = false; // waits for first real GPS fix before showing marker/camera
+    let gpsSignalLost = false;
 
     const map = new maplibregl.Map({
       container: 'map',
@@ -35,6 +37,7 @@
     let introHoldCoords = null;      // position captured when the dive framing was held
 
     const modeIndicator = document.getElementById('mode-indicator');
+    const manualModeBtn = document.getElementById('manual-mode-btn');
     const joystickLeft = document.getElementById('joystick-left');
     const joystickThumbLeft = document.getElementById('joystick-thumb-left');
     const joystickRight = document.getElementById('joystick-right');
@@ -46,18 +49,14 @@
     const legendsPopup = document.getElementById('legends-popup');
     const outOfBoundsBanner = document.getElementById('oob-banner');
     const interiorBadge = document.getElementById('interior-badge');
-    const interiorSuggest = document.getElementById('interior-suggest');
-    const interiorSuggestName = document.getElementById('interior-suggest-name');
-    const interiorSuggestBtn = document.getElementById('interior-suggest-btn');
-    const interiorSuggestClose = document.getElementById('interior-suggest-close');
+    const arrivalNotification = document.getElementById('arrival-notification');
+    let hasArrived = false;
+    let arrivalTimeout = null;
+    const ARRIVAL_THRESHOLD_M = 15;
 
-    // Interior View Suggestion Popup State
-    const SUGGEST_RADIUS_M = 30;       // suggest when within this many meters of the footprint
-    const SUGGEST_HYSTERESIS_M = 5;    // must leave radius + this before a dismissed popup returns
-    const INTERIOR_TRIGGER_RADIUS_M = 12;      // auto-enter interior within this many meters (GPS-friendly)
+    const INTERIOR_TRIGGER_RADIUS_M = 12;      // enter interior within this many meters (GPS-friendly)
     const INTERIOR_TRIGGER_HYSTERESIS_M = 6;   // leave radius + this before auto-interior exits
-    let interiorSuggestionDismissed = false;
-    let manualInteriorView = false;    // interior entered via the suggestion popup toggle
+    let manualInteriorView = false;    // interior entered via the icon toggle
 
     let dashOffset = 0;
     let dashAnimationId = null;
@@ -138,8 +137,12 @@
       const targetHeight = BUILDING_TARGET_HEIGHTS[blockKey] ?? 0;
 
       BUILDINGS_3D_GEOJSON.features.forEach(f => {
-        if (f.properties.blockKey !== blockKey) f.properties.height = 0;
+        if (f.properties.blockKey !== blockKey) {
+          f.properties.height = 0;
+          f.properties.color = '#bfdbfe';
+        }
       });
+      feature.properties.color = '#22d3ee';
 
       map.setLayoutProperty('buildings-3d-layer', 'visibility', 'visible');
       map.setPaintProperty('buildings-3d-layer', 'fill-extrusion-opacity', 0.85);
@@ -344,64 +347,22 @@
       return best;
     }
 
-    function showInteriorSuggestion() {
-      const blockName = BLOCKS[selectedLocationKey] ? BLOCKS[selectedLocationKey].name : 'Building';
-      const textSpan = document.getElementById('interior-suggest-text');
-      if (textSpan.firstChild) {
-        textSpan.firstChild.textContent = isInteriorView
-          ? 'Interior view active for '
-          : 'Interior view available for ';
-      }
-      interiorSuggestName.textContent = blockName;
-      interiorSuggestBtn.textContent = isInteriorView ? 'Exit Interior' : 'View Interior';
-      interiorSuggest.classList.add('show');
+    function distanceBetweenCoords(a, b) {
+      const cosLat = Math.cos(a[1] * Math.PI / 180);
+      const dx = (b[0] - a[0]) * cosLat * 111320;
+      const dy = (b[1] - a[1]) * 111320;
+      return Math.hypot(dx, dy);
     }
 
-    function hideInteriorSuggestion() {
-      interiorSuggest.classList.remove('show');
-    }
-
-    function updateInteriorSuggestion() {
-      if (!selectedLocationKey || controlMode === 'manual' || !isFPVEnabled) {
-        hideInteriorSuggestion();
-        return;
-      }
-      if (!isInteriorView && !manualInteriorView) {
-        const distance = distanceToBuildingMeters(selectedLocationKey);
-        if (distance > SUGGEST_RADIUS_M + SUGGEST_HYSTERESIS_M) {
-          interiorSuggestionDismissed = false;
-        }
-        if (distance <= SUGGEST_RADIUS_M && !interiorSuggestionDismissed) {
-          showInteriorSuggestion();
-        } else {
-          hideInteriorSuggestion();
-        }
-      } else if (manualInteriorView) {
-        const distance = distanceToBuildingMeters(selectedLocationKey);
-        if (distance <= SUGGEST_RADIUS_M + SUGGEST_HYSTERESIS_M) {
-          showInteriorSuggestion();
-        } else {
-          hideInteriorSuggestion();
-        }
-      }
-    }
-
-    interiorSuggestBtn.addEventListener('click', () => {
-      hideInteriorSuggestion();
+    document.getElementById('interior-entry-icon').addEventListener('click', () => {
+      if (!selectedLocationKey || !isFPVEnabled) return;
       if (isInteriorView) {
         exitInteriorView();
-        return;
+      } else {
+        resetCameraFollow();
+        manualInteriorView = true;
+        enterInteriorView(selectedLocationKey);
       }
-      if (!selectedLocationKey || !isFPVEnabled) return;
-      resetCameraFollow();
-      manualInteriorView = true;
-      enterInteriorView(selectedLocationKey);
-      showInteriorSuggestion();
-    });
-
-    interiorSuggestClose.addEventListener('click', () => {
-      interiorSuggestionDismissed = true;
-      hideInteriorSuggestion();
     });
 
     function enterInteriorView(blockKey) {
@@ -409,8 +370,6 @@
       if (isInteriorView && interiorBlockKey === blockKey) return;
       isInteriorView = true;
       interiorBlockKey = blockKey;
-
-      hideInteriorSuggestion();
 
       const blockName = BLOCKS[blockKey] ? BLOCKS[blockKey].name : 'Building';
       document.getElementById('interior-badge-title').textContent = blockName + ' · Interior View';
@@ -467,27 +426,31 @@
 
     function updateInteriorView() {
       const dist = distanceToBuildingMeters(selectedLocationKey);
+      const interiorIcon = document.getElementById('interior-entry-icon');
+
+      // Show icon when within 12m of selected building OR already in interior view
+      if (selectedLocationKey && !isInteriorView && dist <= INTERIOR_TRIGGER_RADIUS_M) {
+        interiorIcon.classList.add('show');
+      } else if (isInteriorView) {
+        interiorIcon.classList.add('show');
+      } else {
+        interiorIcon.classList.remove('show');
+      }
+
       if (isInteriorView && !manualInteriorView &&
           dist <= INTERIOR_TRIGGER_RADIUS_M + INTERIOR_TRIGGER_HYSTERESIS_M) {
-        // Auto-entered interior stays until the user leaves radius + hysteresis.
         return;
       }
-      if (dist <= INTERIOR_TRIGGER_RADIUS_M) {
-        manualInteriorView = false;
-        enterInteriorView(selectedLocationKey);
-      } else if (isInteriorView && manualInteriorView &&
-                 dist <= SUGGEST_RADIUS_M + SUGGEST_HYSTERESIS_M) {
-        // Interior entered via the popup toggle stays until the user exits or leaves the radius.
+      if (isInteriorView && manualInteriorView &&
+          dist <= INTERIOR_TRIGGER_RADIUS_M + INTERIOR_TRIGGER_HYSTERESIS_M) {
+        // Manual interior stays within radius.
       } else if (isInteriorView) {
         exitInteriorView();
       }
-      updateInteriorSuggestion();
     }
 
     // --- DEVICE ORIENTATION COMPASS HEADING LISTENER ---
     function handleDeviceOrientation(e) {
-      if (controlMode === 'manual') return;
-
       let heading = null;
       if (e.webkitCompassHeading !== undefined && e.webkitCompassHeading !== null) {
         heading = e.webkitCompassHeading; // iOS Compass
@@ -499,7 +462,6 @@
       if (hasCompassHeading) {
         userHeading = heading;
         updateVisionConeOrientation();
-        followCamera();
       }
       updateHeadingAvailability();
     }
@@ -526,10 +488,26 @@
     let wasOutOfBounds = false;
     let oobDismissed = false;
 
-    const GPS_SMOOTH_ALPHA_MIN = 0.25; // heavy smoothing for idle GPS jitter
-    const GPS_SMOOTH_ALPHA_MAX = 0.7;  // responsive while walking
-    const GPS_DEADBAND = 0.0000045;   // ~0.5m in degrees
-    const ON_NETWORK_THRESHOLD = GPS_DEADBAND * 4; // ~2m from path -> hide helper line
+    const GPS_SMOOTH_ALPHA_MIN = 0.12; // responsive to small real movements
+    const GPS_SMOOTH_ALPHA_MAX = 0.18;  // dampens GPS spikes aggressively
+    const GPS_SPIKE_THRESHOLD = 0.00007;  // ~7m — catch GPS multipath repositioning
+    const GPS_SPIKE_ALPHA = 0.05;        // heavy suppression for extreme multipath jumps
+    const GPS_DEADBAND = 0.0000135;     // ~1.5m in degrees (matches real phone accuracy)
+    const GPS_LERP_PER_FRAME = 0.08;    // interpolation factor per frame toward GPS target
+    const ON_NETWORK_THRESHOLD = GPS_DEADBAND * 4; // from path -> hide helper line
+
+    // Static detection: freeze marker when user is stationary
+    const STATIC_FREEZE_SECONDS = 3;                    // freeze after this many seconds of no significant movement
+    const STATIC_UNFREEZE_THRESHOLD = GPS_DEADBAND * 3; // ~4.5m — must move this far to unfreeze
+    let gpsFrozen = false;
+    let lastSignificantMoveTime = performance.now();
+
+    // Camera deadband: only pan when marker moves beyond this distance
+    const CAMERA_DEADBAND_M = 8;                        // camera pans when marker moves beyond this (meters)
+    let cameraCenter = [...START_COORDINATE];           // last position camera was centered on
+
+    let targetCoords = [...START_COORDINATE];  // GPS-filtered destination
+    let lastGpsFixTime = performance.now();     // timestamp of last GPS fix
 
     function updateOutOfBoundsState(out) {
       if (!out) {
@@ -556,13 +534,17 @@
     }
 
     function applyGpsFix(lng, lat, heading) {
+      if (gpsSignalLost) {
+        gpsSignalLost = false;
+        userContainer.classList.remove('gps-lost');
+      }
       const outOfBounds = lng < BOUNDING_BOX[0][0] || lng > BOUNDING_BOX[1][0] ||
                           lat < BOUNDING_BOX[0][1] || lat > BOUNDING_BOX[1][1];
       updateOutOfBoundsState(outOfBounds);
 
       if (heading !== null && !isNaN(heading)) {
         hasGpsHeading = true;
-        if (controlMode === 'gps') userHeading = heading;
+        userHeading = heading;
       }
 
       if (typeof userMarker === 'undefined') return;
@@ -570,25 +552,63 @@
       const clampedLng = Math.max(BOUNDING_BOX[0][0], Math.min(BOUNDING_BOX[1][0], lng));
       const clampedLat = Math.max(BOUNDING_BOX[0][1], Math.min(BOUNDING_BOX[1][1], lat));
 
-      const dx = clampedLng - currentUserCoords[0];
-      const dy = clampedLat - currentUserCoords[1];
-      const dist = Math.hypot(dx, dy);
-
-      if (dist > GPS_DEADBAND) {
-        // Adaptive alpha: small fixes (idle jitter) stay heavily smoothed, while large
-        // fixes (walking) track tightly so the FPV camera doesn't lag into turns.
-        const alpha = Math.min(GPS_SMOOTH_ALPHA_MAX, GPS_SMOOTH_ALPHA_MIN +
-          (dist / GPS_DEADBAND) * 0.35);
-        currentUserCoords[0] += dx * alpha;
-        currentUserCoords[1] += dy * alpha;
-
+      // First fix: snap both coords to the real position, show marker, ease map.
+      if (!gpsInitialized) {
+        gpsInitialized = true;
+        currentUserCoords[0] = clampedLng;
+        currentUserCoords[1] = clampedLat;
+        targetCoords[0] = clampedLng;
+        targetCoords[1] = clampedLat;
         userMarker.setLngLat(currentUserCoords);
+        userContainer.style.display = '';
         updateVisionConeOrientation();
+        map.easeTo({ center: currentUserCoords, zoom: INITIAL_ZOOM, pitch: DEFAULT_PITCH, bearing: DEFAULT_BEARING, duration: 1200 });
         updateStraightLine();
         updateNearestEntryMarker();
         updateActiveRouteLine();
         updateInteriorView();
-        followCamera();
+        updateHeadingAvailability();
+        return;
+      }
+
+      // EMA-smooth toward the raw fix to filter GPS noise, updating the *target*
+      // position. The RAF loop interpolates currentUserCoords toward this target.
+      const dx = clampedLng - targetCoords[0];
+      const dy = clampedLat - targetCoords[1];
+      const dist = Math.hypot(dx, dy);
+
+      // Static detection: freeze marker when user is stationary
+      if (dist > STATIC_UNFREEZE_THRESHOLD) {
+        lastSignificantMoveTime = performance.now();
+        if (gpsFrozen) {
+          gpsFrozen = false;
+        }
+      } else if (dist <= GPS_DEADBAND) {
+        if (!gpsFrozen && (performance.now() - lastSignificantMoveTime) > STATIC_FREEZE_SECONDS * 1000) {
+          gpsFrozen = true;
+          targetCoords[0] = currentUserCoords[0];
+          targetCoords[1] = currentUserCoords[1];
+        }
+      }
+
+      if (dist > GPS_DEADBAND) {
+        let alpha;
+        if (dist > GPS_SPIKE_THRESHOLD) {
+          alpha = GPS_SPIKE_ALPHA;
+        } else if (dist < GPS_DEADBAND * 2) {
+          alpha = 0.02; // near-zero for small deltas — dampens static jitter
+        } else {
+          alpha = Math.min(GPS_SMOOTH_ALPHA_MAX, GPS_SMOOTH_ALPHA_MIN +
+            (dist / GPS_DEADBAND) * 0.10);
+        }
+        targetCoords[0] += dx * alpha;
+        targetCoords[1] += dy * alpha;
+        lastGpsFixTime = performance.now();
+
+        updateStraightLine();
+        updateNearestEntryMarker();
+        updateActiveRouteLine();
+        updateInteriorView();
       }
 
       updateHeadingAvailability();
@@ -599,6 +619,28 @@
       outOfBoundsBanner.classList.remove('show');
     });
 
+    // --- GPS RETRY / RECALIBRATE ---
+    function recalibrateGPS() {
+      gpsInitialized = false;
+      userContainer.style.display = 'none';
+      if (typeof watchId !== 'undefined' && watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+      if ('geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            applyGpsFix(position.coords.longitude, position.coords.latitude, position.coords.heading);
+          },
+          (error) => {
+            console.warn("GPS recalibration failed.", error);
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+        startGPSWatch();
+      }
+    }
+
+    // --- INITIAL GPS ACQUISITION ---
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -622,19 +664,38 @@
         controlMode = 'manual';
         modeIndicator.textContent = 'Mode: Manual Controller (Joysticks / WASD)';
         modeIndicator.classList.add('manual');
+        manualModeBtn.classList.add('active');
         joystickLeft.classList.add('active');
         joystickRight.classList.add('active');
+        currentUserCoords = [...START_COORDINATE];
+        targetCoords = [...START_COORDINATE];
+        userMarker.setLngLat(currentUserCoords);
+        userContainer.style.display = '';
+        map.easeTo({ center: currentUserCoords, zoom: INITIAL_ZOOM, pitch: DEFAULT_PITCH, bearing: DEFAULT_BEARING, duration: 800 });
       } else {
         controlMode = 'gps';
         modeIndicator.textContent = 'Mode: Live GPS';
         modeIndicator.classList.remove('manual');
+        manualModeBtn.classList.remove('active');
         joystickLeft.classList.remove('active');
         joystickRight.classList.remove('active');
         initDeviceOrientation();
       }
     }
 
-    modeIndicator.addEventListener('click', toggleControlMode);
+    modeIndicator.addEventListener('click', (e) => {
+      const recalibrateIcon = modeIndicator.querySelector('.gps-recalibrate');
+      if (recalibrateIcon && recalibrateIcon.contains(e.target)) {
+        recalibrateGPS();
+        return;
+      }
+      if (modeIndicator.classList.contains('gps-unavailable')) {
+        recalibrateGPS();
+        return;
+      }
+    });
+
+    manualModeBtn.addEventListener('click', toggleControlMode);
 
     // --- DUAL JOYSTICK CONTROL SYSTEM ---
     const JOYSTICK_RADIUS = 50;
@@ -845,7 +906,7 @@
           'line-cap': 'round'
         },
         paint: {
-          'line-color': '#1e3a8a',
+          'line-color': '#1e293b',
           'line-width': 6,
           'line-opacity': 0.8
         }
@@ -860,7 +921,7 @@
           'line-cap': 'round'
         },
         paint: {
-          'line-color': '#38bdf8',
+          'line-color': '#06b6d4',
           'line-width': 4,
           'line-dasharray': [0, 2, 2]
         }
@@ -932,7 +993,7 @@
         source: 'straight-line-source',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
-          'line-color': '#e11d48',
+          'line-color': '#f59e0b',
           'line-width': 2,
           'line-dasharray': [3, 3],
           'line-opacity': 0.5
@@ -997,7 +1058,7 @@
     function updateFPVCamera() {
       map.jumpTo({
         center: currentUserCoords,
-        pitch: DEFAULT_PITCH,
+        pitch: isFPVEnabled ? DEFAULT_PITCH : 0,
         bearing: userHeading,
         zoom: 19.5
       });
@@ -1005,12 +1066,30 @@
 
     // FPV camera follows the user marker orientation (Pitch = 60), except during the
     // one-shot cinematic dive on building selection and while in interior view.
+    // Camera deadband: only pan when marker moves beyond CAMERA_DEADBAND_M.
     function followCamera() {
+      if (controlMode !== 'manual' && !gpsInitialized) return;
       if (isInteriorView) {
         map.jumpTo({ center: currentUserCoords, pitch: INTERIOR_PITCH, bearing: 0 });
+        cameraCenter = [...currentUserCoords];
         return;
       }
-      if (!isFPVEnabled) return;
+      // Top-down: track user position in both modes
+      if (!isFPVEnabled) {
+        if (distanceBetweenCoords(currentUserCoords, cameraCenter) > CAMERA_DEADBAND_M) {
+          cameraCenter = [...currentUserCoords];
+          map.jumpTo({ center: currentUserCoords, pitch: 0 });
+        }
+        return;
+      }
+
+      if (controlMode === 'manual') {
+        if (distanceBetweenCoords(currentUserCoords, cameraCenter) > CAMERA_DEADBAND_M) {
+          cameraCenter = [...currentUserCoords];
+        }
+        updateFPVCamera();
+        return;
+      }
       if (cameraFocusDiving) return;
       // The intro dive framing survives device orientation and camera rotation changes
       // and is only released when the user actually translates.
@@ -1023,19 +1102,25 @@
         introFrameHeld = false;
         introHoldCoords = null;
       }
-      updateFPVCamera();
+      // GPS + FPV: only pan if marker moved beyond deadband
+      if (distanceBetweenCoords(currentUserCoords, cameraCenter) > CAMERA_DEADBAND_M) {
+        cameraCenter = [...currentUserCoords];
+        updateFPVCamera();
+      }
     }
 
     function resetCameraFollow() {
       cameraFocusDiving = false;
       introFrameHeld = false;
       introHoldCoords = null;
+      cameraCenter = [...currentUserCoords];
     }
 
 
     function resetToOverview() {
+      const target = controlMode === 'manual' && currentUserCoords ? currentUserCoords : DEFAULT_CENTER;
       map.flyTo({
-        center: DEFAULT_CENTER,
+        center: target,
         zoom: 16.3,
         pitch: 0,
         bearing: -14,
@@ -1046,23 +1131,19 @@
 
     function toggleFPVMode(enabled) {
       if (!enabled && isInteriorView) exitInteriorView();
-      resetCameraFollow();
-      if (enabled && isInteriorView) {
-        followCamera();
-        return;
-      }
       if (enabled) {
+        map.easeTo({ center: currentUserCoords, pitch: DEFAULT_PITCH, zoom: INITIAL_ZOOM, bearing: userHeading, duration: 600 });
+        resetCameraFollow();
+        followCamera();
+      } else {
+        resetCameraFollow();
         map.easeTo({
           center: currentUserCoords,
-          pitch: DEFAULT_PITCH,
-          bearing: userHeading,
-          zoom: 19.5,
-          duration: 1000
+          pitch: 0,
+          zoom: 16.3,
+          duration: 600
         });
-      } else {
-        resetToOverview();
       }
-      updateInteriorSuggestion();
     }
 
     const compassBtn = document.querySelector('.maplibregl-ctrl-compass');
@@ -1278,7 +1359,7 @@
     const blockMarkers = {};
     Object.keys(BLOCKS).forEach(key => {
       const block = BLOCKS[key];
-      const mainMarker = new maplibregl.Marker({ color: block.color })
+      const mainMarker = new maplibregl.Marker({ color: '#e11d48' })
         .setLngLat(block.coords);
 
       const markerEl = mainMarker.getElement();
@@ -1339,6 +1420,29 @@
     }
 
     map.on('rotate', updateNearestEntryMarker);
+
+    function checkArrival() {
+      if (!selectedLocationKey || hasArrived) return;
+
+      const targetBlock = BLOCKS[selectedLocationKey];
+      if (!targetBlock || !targetBlock.entries || targetBlock.entries.length === 0) return;
+
+      let targetPoint = targetBlock.entries[0];
+      let minDist = distanceBetweenCoords(currentUserCoords, targetPoint);
+      for (let i = 1; i < targetBlock.entries.length; i++) {
+        const d = distanceBetweenCoords(currentUserCoords, targetBlock.entries[i]);
+        if (d < minDist) { minDist = d; targetPoint = targetBlock.entries[i]; }
+      }
+
+      if (minDist <= ARRIVAL_THRESHOLD_M) {
+        hasArrived = true;
+        arrivalNotification.classList.add('show');
+        if (arrivalTimeout) clearTimeout(arrivalTimeout);
+        arrivalTimeout = setTimeout(() => {
+          arrivalNotification.classList.remove('show');
+        }, 3000);
+      }
+    }
 
     function updateStraightLine() {
       if (!selectedLocationKey || !map.getSource('straight-line-source')) return;
@@ -1419,6 +1523,7 @@
 
       if (targetBlock) {
         selectedLocationKey = selectedKey;
+        hasArrived = false;
 
         const searchInput = document.getElementById('search-input');
         searchInput.value = targetBlock.name;
@@ -1563,8 +1668,8 @@
     visionConeSvg.innerHTML = `
       <defs>
         <linearGradient id="coneGrad" x1="0%" y1="100%" x2="0%" y2="0%">
-          <stop offset="0%" stop-color="#2563eb" stop-opacity="0.45"/>
-          <stop offset="100%" stop-color="#e11d48" stop-opacity="0.05"/>
+          <stop offset="0%" stop-color="#1e3a8a" stop-opacity="0.45"/>
+          <stop offset="100%" stop-color="#1e3a8a" stop-opacity="0.05"/>
         </linearGradient>
       </defs>
       <path d="M 30 30 L 12 3 A 30 30 0 0 1 48 3 Z" fill="url(#coneGrad)" />
@@ -1579,6 +1684,8 @@
     userContainer.appendChild(visionConeSvg);
     userContainer.appendChild(userPulse);
     userContainer.appendChild(userDot);
+
+    userContainer.style.display = 'none'; // hidden until first GPS fix
 
     const userMarker = new maplibregl.Marker({ element: userContainer })
       .setLngLat(currentUserCoords)
@@ -1602,6 +1709,10 @@
             }
           },
           (error) => {
+            if (!gpsSignalLost) {
+              gpsSignalLost = true;
+              userContainer.classList.add('gps-lost');
+            }
             console.warn("GPS watchPosition error or unavailable.", error);
           },
           { enableHighAccuracy: true, maximumAge: 1000, timeout: 5000 }
@@ -1612,6 +1723,7 @@
     startGPSWatch();
 
     const MOVE_STEP = 0.000015; 
+    const KEYBOARD_MOVE_STEP = 0.000008;
     const ROTATE_STEP = 3.0;    
 
     const activeKeys = {};
@@ -1780,6 +1892,7 @@
         if (!DEBUG_MODE) return;
         e.preventDefault();
         currentUserCoords = [...START_COORDINATE];
+        targetCoords = [...currentUserCoords];
         userMarker.setLngLat(currentUserCoords);
         updateVisionConeOrientation();
         updateStraightLine();
@@ -1799,6 +1912,7 @@
       if (controlMode === 'manual' && DEBUG_MODE && TELEPORT_COORDINATES[key]) {
         e.preventDefault();
         currentUserCoords = [...TELEPORT_COORDINATES[key]];
+        targetCoords = [...currentUserCoords];
         userMarker.setLngLat(currentUserCoords);
         updateVisionConeOrientation();
         updateStraightLine();
@@ -1826,6 +1940,22 @@
     });
 
     function handleMovementLoop() {
+      // --- GPS INTERPOLATION (runs every frame in GPS mode) ---
+      // Lerps currentUserCoords toward the EMA-filtered targetCoords so the marker
+      // and camera glide smoothly at 60 Hz between GPS fixes (1-5 Hz).
+      if (controlMode === 'gps' && gpsInitialized && !gpsFrozen) {
+        const dx = targetCoords[0] - currentUserCoords[0];
+        const dy = targetCoords[1] - currentUserCoords[1];
+        if (dx !== 0 || dy !== 0) {
+          currentUserCoords[0] += dx * GPS_LERP_PER_FRAME;
+          currentUserCoords[1] += dy * GPS_LERP_PER_FRAME;
+          userMarker.setLngLat(currentUserCoords);
+          updateVisionConeOrientation();
+          followCamera();
+          checkArrival();
+        }
+      }
+
       if (controlMode === 'manual' && !pongActive) {
         let moved = false;
 
@@ -1864,7 +1994,7 @@
 
         if (activeKeys['w'] || activeKeys['arrowup']) {
           const rad = userHeading * (Math.PI / 180);
-          const step = isFPVEnabled ? MOVE_STEP * 0.35 : MOVE_STEP;
+          const step = isFPVEnabled ? KEYBOARD_MOVE_STEP * 0.35 : KEYBOARD_MOVE_STEP;
           nextLng += Math.sin(rad) * step;
           nextLat += Math.cos(rad) * step;
           moved = true;
@@ -1872,7 +2002,7 @@
 
         if (activeKeys['s'] || activeKeys['arrowdown']) {
           const rad = userHeading * (Math.PI / 180);
-          const step = isFPVEnabled ? MOVE_STEP * 0.35 : MOVE_STEP;
+          const step = isFPVEnabled ? KEYBOARD_MOVE_STEP * 0.35 : KEYBOARD_MOVE_STEP;
           nextLng -= Math.sin(rad) * step;
           nextLat -= Math.cos(rad) * step;
           moved = true;
@@ -1888,9 +2018,10 @@
           updateNearestEntryMarker();
           updateActiveRouteLine();
           updateInteriorView();
-
-          followCamera();
         }
+
+        followCamera();
+        checkArrival();
       }
 
       requestAnimationFrame(handleMovementLoop);
