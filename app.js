@@ -24,9 +24,6 @@
     map.keyboard.disable();
 
     let userHeading = 220;
-    let manualCameraOverride = false;
-    let manualCameraSnapTimer = null;
-    const MANUAL_SNAP_DELAY = 2500;
     let selectedLocationKey = null;
 
     let controlMode = 'gps'; 
@@ -998,20 +995,6 @@
       bearingSlider.value = currentBearing;
     });
 
-    map.on('rotatestart', () => {
-      if (controlMode !== 'manual') return;
-      manualCameraOverride = true;
-      clearTimeout(manualCameraSnapTimer);
-    });
-
-    map.on('rotateend', () => {
-      if (controlMode !== 'manual') return;
-      manualCameraSnapTimer = setTimeout(() => {
-        manualCameraOverride = false;
-        map.easeTo({ bearing: userHeading, duration: 800 });
-      }, MANUAL_SNAP_DELAY);
-    });
-
     class TopDownControl {
       onAdd(map) {
         this._map = map;
@@ -1046,7 +1029,7 @@
       map.jumpTo({
         center: currentUserCoords,
         pitch: isFPVEnabled ? DEFAULT_PITCH : 0,
-        ...(manualCameraOverride ? {} : { bearing: userHeading }),
+        bearing: userHeading,
         zoom: 19.5
       });
     }
