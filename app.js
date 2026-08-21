@@ -24,6 +24,7 @@
     map.keyboard.disable();
 
     let userHeading = 220;
+    let cameraBearing = 220;
     let selectedLocationKey = null;
 
     let controlMode = 'gps'; 
@@ -461,6 +462,7 @@
       hasCompassHeading = heading !== null && !isNaN(heading);
       if (hasCompassHeading) {
         userHeading = heading;
+        if (controlMode === 'manual') cameraBearing = userHeading;
         updateVisionConeOrientation();
       }
       updateHeadingAvailability();
@@ -533,6 +535,7 @@
       if (heading !== null && !isNaN(heading)) {
         hasGpsHeading = true;
         userHeading = heading;
+        if (controlMode === 'manual') cameraBearing = userHeading;
       }
 
       if (typeof userMarker === 'undefined') return;
@@ -632,6 +635,7 @@
     function toggleControlMode() {
       if (controlMode === 'gps') {
         controlMode = 'manual';
+        cameraBearing = userHeading;
         modeIndicator.textContent = 'Mode: Manual Controller (Joysticks / WASD)';
         modeIndicator.classList.add('manual');
         manualModeBtn.classList.add('active');
@@ -1029,7 +1033,7 @@
       map.jumpTo({
         center: currentUserCoords,
         pitch: isFPVEnabled ? DEFAULT_PITCH : 0,
-        bearing: userHeading,
+        bearing: cameraBearing,
         zoom: 19.5
       });
     }
@@ -1096,7 +1100,7 @@
     function toggleFPVMode(enabled) {
       if (!enabled && isInteriorView) exitInteriorView();
       if (enabled) {
-        map.easeTo({ center: currentUserCoords, pitch: DEFAULT_PITCH, zoom: INITIAL_ZOOM, bearing: userHeading, duration: 600 });
+        map.easeTo({ center: currentUserCoords, pitch: DEFAULT_PITCH, zoom: INITIAL_ZOOM, bearing: cameraBearing, duration: 600 });
         resetCameraFollow();
         followCamera();
       } else {
@@ -1916,17 +1920,22 @@
 
         // --- RIGHT JOYSTICK / KEYBOARD ROTATION ---
         if (rightJoyActive && Math.abs(rightJoyVector.x) > 0.05) {
-          userHeading = (userHeading + rightJoyVector.x * ROTATE_STEP * 0.4 + 360) % 360;
+          cameraBearing = (cameraBearing + rightJoyVector.x * ROTATE_STEP * 0.4 + 360) % 360;
+          if (leftJoyActive) {
+            userHeading = cameraBearing;
+          }
           moved = true;
         }
 
         if (activeKeys['a'] || activeKeys['arrowleft']) {
           userHeading = (userHeading - ROTATE_STEP + 360) % 360;
+          cameraBearing = userHeading;
           moved = true;
         }
 
         if (activeKeys['d'] || activeKeys['arrowright']) {
           userHeading = (userHeading + ROTATE_STEP) % 360;
+          cameraBearing = userHeading;
           moved = true;
         }
 
