@@ -1044,12 +1044,7 @@
         cameraCenter = [...currentUserCoords];
         return;
       }
-      // Top-down: track user position in both modes
-      if (!isFPVEnabled) {
-        cameraCenter = [...currentUserCoords];
-        map.jumpTo({ center: currentUserCoords, pitch: 0 });
-        return;
-      }
+      if (!isFPVEnabled) return;
 
       if (controlMode === 'manual') {
         if (distanceBetweenCoords(currentUserCoords, cameraCenter) > CAMERA_DEADBAND_M) {
@@ -1107,7 +1102,7 @@
       } else {
         resetCameraFollow();
         map.easeTo({
-          center: currentUserCoords,
+          center: DEFAULT_CENTER,
           pitch: 0,
           zoom: 16.3,
           duration: 600
