@@ -1048,7 +1048,10 @@
         cameraCenter = [...currentUserCoords];
         return;
       }
-      if (!isFPVEnabled) return;
+      if (!isFPVEnabled) {
+        map.jumpTo({ bearing: userHeading });
+        return;
+      }
 
       if (controlMode === 'manual') {
         if (distanceBetweenCoords(currentUserCoords, cameraCenter) > CAMERA_DEADBAND_M) {
