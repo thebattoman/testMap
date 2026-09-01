@@ -24,7 +24,6 @@
     map.keyboard.disable();
 
     let userHeading = 220;
-    let cameraBearing = 220;
     let selectedLocationKey = null;
 
     let controlMode = 'gps'; 
@@ -462,7 +461,6 @@
       hasCompassHeading = heading !== null && !isNaN(heading);
       if (hasCompassHeading) {
         userHeading = heading;
-        if (controlMode === 'manual') cameraBearing = userHeading;
         updateVisionConeOrientation();
       }
       updateHeadingAvailability();
@@ -490,12 +488,27 @@
     let wasOutOfBounds = false;
     let oobDismissed = false;
 
-    const GPS_SPIKE_THRESHOLD = 0.00007;  // ~7m — catch GPS multipath repositioning
-    const ON_NETWORK_THRESHOLD = 0.000054; // ~6m — from path -> hide helper line
+    const GPS_DEADBAND = 0.0000135;       // ~1.5m
+    const ON_NETWORK_THRESHOLD = GPS_DEADBAND * 4; // ~6m — from path -> hide helper line
+
+    // Soft lane attractor: pull the raw GPS fix toward the nearest walkway segment
+    const LANE_ATTRACT_RADIUS_M = 4;      // meters — max cross-track distance to attract
+    const GPS_MAX_SPEED_MPS = 2.5;        // brisk walking pace clamp for dead-reckoning
+    const GPS_STALE_AFTER_MS = 1500;      // fixes older than this stop extrapolation
+    const GPS_VELOCITY_DECAY = 0.85;      // per-frame decay once fixes go stale (frame-graceful settle)
+
+    let gpsVelocityX = 0;                 // deg/frame along lng
+    let gpsVelocityY = 0;                 // deg/frame along lat
+    let gpsSpeedEstimate = 0;             // m/s, smoothed from fix-to-fix displacement
+    let lastFixLat = null;
+    let lastFixLng = null;
+    let lastFixTime = performance.now();
+    let lastGpsFixTime = performance.now();
 
     // Camera deadband: only pan when marker moves beyond this distance
     const CAMERA_DEADBAND_M = 8;                        // camera pans when marker moves beyond this (meters)
     let cameraCenter = [...START_COORDINATE];           // last position camera was centered on
+    let userInteracting = false;   // free-camera mode: user manipulated the camera manually
 
     let targetCoords = [...START_COORDINATE];  // GPS-filtered destination
 
@@ -535,7 +548,6 @@
       if (heading !== null && !isNaN(heading)) {
         hasGpsHeading = true;
         userHeading = heading;
-        if (controlMode === 'manual') cameraBearing = userHeading;
       }
 
       if (typeof userMarker === 'undefined') return;
@@ -559,31 +571,50 @@
         updateActiveRouteLine();
         updateInteriorView();
         updateHeadingAvailability();
+        lastFixLng = clampedLng;
+        lastFixLat = clampedLat;
+        lastFixTime = performance.now();
+        lastGpsFixTime = lastFixTime;
         return;
       }
 
-      // Spike filter: suppress sudden jumps from bad GPS readings
-      const dx = clampedLng - currentUserCoords[0];
-      const dy = clampedLat - currentUserCoords[1];
-      const dist = Math.hypot(dx, dy);
-
-      if (dist > GPS_SPIKE_THRESHOLD) {
-        updateHeadingAvailability();
-        return;
+      // Velocity estimate from real fix-to-fix displacement (deg/sec, clamped to walking pace).
+      const now = performance.now();
+      if (lastFixLng !== null && lastFixLat !== null) {
+        const dtSec = (now - lastFixTime) / 1000;
+        if (dtSec > 0) {
+          let vx = (clampedLng - lastFixLng) / dtSec;
+          let vy = (clampedLat - lastFixLat) / dtSec;
+          const speedMps = Math.hypot(
+            vx * Math.cos(clampedLat * Math.PI / 180) * 111320,
+            vy * 111320
+          );
+          gpsSpeedEstimate = gpsSpeedEstimate * 0.7 + speedMps * 0.3;
+          if (speedMps > GPS_MAX_SPEED_MPS && speedMps > 0) {
+            const scale = GPS_MAX_SPEED_MPS / speedMps;
+            vx *= scale;
+            vy *= scale;
+          }
+          if (!isNaN(vx) && !isNaN(vy)) {
+            gpsVelocityX = vx / 60;
+            gpsVelocityY = vy / 60;
+          }
+        }
       }
+      lastFixLng = clampedLng;
+      lastFixLat = clampedLat;
+      lastFixTime = now;
+      lastGpsFixTime = now;
 
-      // Snap directly to raw GPS fix
-      currentUserCoords[0] = clampedLng;
-      currentUserCoords[1] = clampedLat;
-      targetCoords[0] = clampedLng;
-      targetCoords[1] = clampedLat;
-      userMarker.setLngLat(currentUserCoords);
-      updateVisionConeOrientation();
+      // Soft lane attractor: pull toward nearest walkway segment, never hard-snap.
+      const attracted = applyLaneAttractor(clampedLng, clampedLat);
+      targetCoords[0] = attracted[0];
+      targetCoords[1] = attracted[1];
+
       updateStraightLine();
       updateNearestEntryMarker();
       updateActiveRouteLine();
       updateInteriorView();
-
       updateHeadingAvailability();
     }
 
@@ -635,7 +666,7 @@
     function toggleControlMode() {
       if (controlMode === 'gps') {
         controlMode = 'manual';
-        cameraBearing = userHeading;
+        setUserInteracting(false);
         modeIndicator.textContent = 'Mode: Manual Controller (Joysticks / WASD)';
         modeIndicator.classList.add('manual');
         manualModeBtn.classList.add('active');
@@ -648,6 +679,7 @@
         map.easeTo({ center: currentUserCoords, zoom: INITIAL_ZOOM, pitch: DEFAULT_PITCH, bearing: DEFAULT_BEARING, duration: 800 });
       } else {
         controlMode = 'gps';
+        setUserInteracting(false);
         modeIndicator.textContent = 'Mode: Live GPS';
         modeIndicator.classList.remove('manual');
         manualModeBtn.classList.remove('active');
@@ -987,18 +1019,6 @@
     });
     map.addControl(nav, 'bottom-right');
 
-    const bearingSlider = document.getElementById('bearing-slider');
-
-    bearingSlider.addEventListener('input', (e) => {
-      const val = parseFloat(e.target.value);
-      map.setBearing(val);
-    });
-
-    map.on('rotate', () => {
-      const currentBearing = map.getBearing();
-      bearingSlider.value = currentBearing;
-    });
-
     class TopDownControl {
       onAdd(map) {
         this._map = map;
@@ -1028,13 +1048,31 @@
 
     map.addControl(new TopDownControl(), 'bottom-right');
 
+    function setUserInteracting(interacting) {
+      userInteracting = interacting;
+    }
+
+    map.on('movestart', (e) => {
+      if (e.originalEvent) setUserInteracting(true);
+    });
+    map.on('dragstart', (e) => {
+      if (e.originalEvent) setUserInteracting(true);
+    });
+    map.on('rotatestart', (e) => {
+      if (e.originalEvent) setUserInteracting(true);
+    });
+    map.on('pitchstart', (e) => {
+      if (e.originalEvent) setUserInteracting(true);
+    });
+
     // Camera follows user marker orientation in FPV mode (Pitch = 60)
     function updateFPVCamera() {
-      map.jumpTo({
+      map.easeTo({
         center: currentUserCoords,
-        pitch: isFPVEnabled ? DEFAULT_PITCH : 0,
-        bearing: cameraBearing,
-        zoom: 19.5
+        pitch: DEFAULT_PITCH,
+        bearing: userHeading,
+        zoom: 19.5,
+        duration: 400
       });
     }
 
@@ -1042,17 +1080,14 @@
     // one-shot cinematic dive on building selection and while in interior view.
     // Camera deadband: only pan when marker moves beyond CAMERA_DEADBAND_M.
     function followCamera() {
+      if (userInteracting) return;
       if (controlMode !== 'manual' && !gpsInitialized) return;
       if (isInteriorView) {
         map.jumpTo({ center: currentUserCoords, pitch: INTERIOR_PITCH, bearing: 0 });
         cameraCenter = [...currentUserCoords];
         return;
       }
-      if (!isFPVEnabled) {
-        map.jumpTo({ bearing: userHeading });
-        return;
-      }
-
+      if (!isFPVEnabled) return;
       if (controlMode === 'manual') {
         if (distanceBetweenCoords(currentUserCoords, cameraCenter) > CAMERA_DEADBAND_M) {
           cameraCenter = [...currentUserCoords];
@@ -1072,8 +1107,7 @@
         introFrameHeld = false;
         introHoldCoords = null;
       }
-      // GPS + FPV: always update bearing, only pan if marker moved beyond deadband
-      map.jumpTo({ bearing: userHeading });
+      // GPS + FPV: only pan if marker moved beyond deadband
       if (distanceBetweenCoords(currentUserCoords, cameraCenter) > CAMERA_DEADBAND_M) {
         cameraCenter = [...currentUserCoords];
         updateFPVCamera();
@@ -1102,18 +1136,13 @@
 
     function toggleFPVMode(enabled) {
       if (!enabled && isInteriorView) exitInteriorView();
+      resetCameraFollow();
+      if (enabled && isInteriorView) { followCamera(); return; }
       if (enabled) {
-        map.easeTo({ center: currentUserCoords, pitch: DEFAULT_PITCH, zoom: INITIAL_ZOOM, bearing: cameraBearing, duration: 600 });
-        resetCameraFollow();
-        followCamera();
+        setUserInteracting(false);
+        map.easeTo({ center: currentUserCoords, pitch: DEFAULT_PITCH, bearing: userHeading, zoom: 19.5, duration: 1000 });
       } else {
-        resetCameraFollow();
-        map.easeTo({
-          center: DEFAULT_CENTER,
-          pitch: 0,
-          zoom: 16.3,
-          duration: 600
-        });
+        resetToOverview();
       }
     }
 
@@ -1125,6 +1154,7 @@
 
         if (isFPVEnabled) {
           if (isInteriorView) exitInteriorView();
+          setUserInteracting(false);
           resetCameraFollow();
           updateFPVCamera();
         } else {
@@ -1297,6 +1327,45 @@
     function getRouteCoords(route) {
       if (!route || !route.features || route.features.length === 0) return null;
       return route.features[0].geometry.coordinates;
+    }
+
+    // Find the nearest point across ALL known building route lines (soft-match source).
+    function getNearestSegmentAcrossRoutes(coord) {
+      let closestPoint = coord;
+      let minDistSq = Infinity;
+
+      Object.keys(BLOCKS).forEach((blockKey) => {
+        const block = BLOCKS[blockKey];
+        if (!block || !block.route) return;
+        const lineCoords = getRouteCoords(block.route);
+        if (!lineCoords || lineCoords.length < 2) return;
+        for (let i = 0; i < lineCoords.length - 1; i++) {
+          const projected = getClosestPointOnSegment(coord, lineCoords[i], lineCoords[i + 1]);
+          const distSq = calculateDistanceSq(coord, projected);
+          if (distSq < minDistSq) {
+            minDistSq = distSq;
+            closestPoint = projected;
+          }
+        }
+      });
+
+      return closestPoint;
+    }
+
+    // Soft lane attractor: blend raw fix toward nearest walkway within LANE_ATTRACT_RADIUS_M.
+    function applyLaneAttractor(lng, lat) {
+      const projected = getNearestSegmentAcrossRoutes([lng, lat]);
+      const cosLat = Math.cos(lat * Math.PI / 180);
+      const distM = Math.hypot(
+        (lng - projected[0]) * cosLat * 111320,
+        (lat - projected[1]) * 111320
+      );
+      if (distM >= LANE_ATTRACT_RADIUS_M) return [lng, lat];
+      const weight = 1 - distM / LANE_ATTRACT_RADIUS_M;
+      return [
+        lng + (projected[0] - lng) * weight,
+        lat + (projected[1] - lat) * weight
+      ];
     }
 
     function getNearestNetworkPoint(coord) {
@@ -1912,8 +1981,39 @@
 
     function handleMovementLoop() {
       // --- GPS MODE (runs every frame) ---
-      // Marker already positioned by applyGpsFix; just update camera and arrival.
+      // Dead-reckon between fixes; settle gracefully when fixes go stale.
       if (controlMode === 'gps' && gpsInitialized) {
+        const now = performance.now();
+        if (now - lastGpsFixTime < GPS_STALE_AFTER_MS) {
+          // Extrapolate at measured (clamped) velocity; decay once ops slow down.
+          if (gpsVelocityX !== 0 || gpsVelocityY !== 0) {
+            const recency = Math.max(0, 1 - (now - lastGpsFixTime) / GPS_STALE_AFTER_MS);
+            currentUserCoords[0] += gpsVelocityX * recency;
+            currentUserCoords[1] += gpsVelocityY * recency;
+          }
+        } else {
+          // Frame-graceful settle: ease velocity to zero like a body coming to rest.
+          gpsVelocityX *= GPS_VELOCITY_DECAY;
+          gpsVelocityY *= GPS_VELOCITY_DECAY;
+          if (Math.abs(gpsVelocityX) > 1e-10 || Math.abs(gpsVelocityY) > 1e-10) {
+            currentUserCoords[0] += gpsVelocityX;
+            currentUserCoords[1] += gpsVelocityY;
+          }
+        }
+
+        // Critically-damped spring toward the (attractor-filtered) target fix,
+        // so near fixes blend in without rubber-banding against extrapolation.
+        const dx = targetCoords[0] - currentUserCoords[0];
+        const dy = targetCoords[1] - currentUserCoords[1];
+        const dist = Math.hypot(dx, dy);
+        if (dist > 1e-9) {
+          const spring = Math.min(1, 0.18 + dist * 2000);
+          currentUserCoords[0] += dx * spring;
+          currentUserCoords[1] += dy * spring;
+        }
+
+        userMarker.setLngLat(currentUserCoords);
+        updateVisionConeOrientation();
         followCamera();
         checkArrival();
       }
@@ -1923,22 +2023,17 @@
 
         // --- RIGHT JOYSTICK / KEYBOARD ROTATION ---
         if (rightJoyActive && Math.abs(rightJoyVector.x) > 0.05) {
-          cameraBearing = (cameraBearing + rightJoyVector.x * ROTATE_STEP * 0.4 + 360) % 360;
-          if (leftJoyActive) {
-            userHeading = cameraBearing;
-          }
+          userHeading = (userHeading + rightJoyVector.x * ROTATE_STEP * 0.4 + 360) % 360;
           moved = true;
         }
 
         if (activeKeys['a'] || activeKeys['arrowleft']) {
           userHeading = (userHeading - ROTATE_STEP + 360) % 360;
-          cameraBearing = userHeading;
           moved = true;
         }
 
         if (activeKeys['d'] || activeKeys['arrowright']) {
           userHeading = (userHeading + ROTATE_STEP) % 360;
-          cameraBearing = userHeading;
           moved = true;
         }
 

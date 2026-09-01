@@ -400,52 +400,6 @@
       transition: transform 0.05s ease-out;
     }
 
-    /* --- RADIAL BEARING SLIDER --- */
-    .bearing-control-container {
-      position: absolute;
-      bottom: 60px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 10;
-      background: rgba(255, 255, 255, 0.95);
-      backdrop-filter: blur(6px);
-      padding: 8px 16px;
-      border-radius: 30px;
-      box-shadow: 0 4px 20px rgba(30, 58, 138, 0.2);
-      display: flex;
-      align-items: center;
-      border: 1px solid #e2e8f0;
-    }
-
-    .bearing-slider {
-      -webkit-appearance: none;
-      width: 150px;
-      height: 6px;
-      border-radius: 3px;
-      background: #e2e8f0;
-      outline: none;
-    }
-
-    .bearing-slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 16px;
-      height: 16px;
-      border-radius: 4px;
-      background: #e11d48;
-      cursor: pointer;
-      box-shadow: 0 2px 6px rgba(225, 29, 72, 0.4);
-    }
-
-    .bearing-slider::-moz-range-thumb {
-      width: 16px;
-      height: 16px;
-      border-radius: 4px;
-      background: #e11d48;
-      cursor: pointer;
-      box-shadow: 0 2px 6px rgba(225, 29, 72, 0.4);
-    }
-
     /* --- CUSTOM MAP CONTROLS (TOP DOWN VIEW TOGGLE) --- */
     .topdown-btn {
       background-image: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%231e3a8a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>');
