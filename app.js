@@ -675,6 +675,15 @@
     let rightJoyActive = false;
     let rightJoyVector = { x: 0, y: 0 };
 
+    // Compass joystick (drag to rotate bearing, tap to recenter)
+    let compassActive = false;
+    let compassVector = { x: 0, y: 0 };
+    let compassStartClientX = 0;
+    let compassDragged = false;
+    const COMPASS_DRAG_THRESHOLD = 6;   // px before a press counts as a drag
+    const COMPASS_ROTATE_STEP = 0.5;    // degrees per normalized x per frame
+    const COMPASS_PITCH_STEP = 0.4;     // degrees per normalized y per frame
+
     function handleJoystickMove(container, thumb, clientX, clientY, vectorObj) {
       const rect = container.getBoundingClientRect();
       const centerX = rect.left + rect.width / 2;
@@ -1011,6 +1020,16 @@
 
     map.addControl(new TopDownControl(), 'bottom-right');
 
+    const navCompass = document.querySelector('.maplibregl-ctrl-compass');
+    const compassCenter = document.createElement('div');
+    compassCenter.className = 'compass-center';
+    let compassThumb = navCompass;
+    if (navCompass) {
+      navCompass.parentNode.removeChild(navCompass);
+      compassCenter.appendChild(navCompass);
+      document.getElementById('map').appendChild(compassCenter);
+    }
+
     function setUserInteracting(interacting) {
       userInteracting = interacting;
     }
@@ -1028,7 +1047,7 @@
       if (e.originalEvent) setUserInteracting(true);
     });
 
-    // Camera follows user marker orientation in FPV mode (Pitch = 60)
+    // One-shot FPV framing used by explicit controls (compass, FPV/topdown toggle).
     function updateFPVCamera() {
       map.easeTo({
         center: currentUserCoords,
@@ -1039,51 +1058,10 @@
       });
     }
 
-    // Continuous per-frame FPV camera tracking. Instant placement (duration: 0);
-    // smoothness comes from the marker's own motion (velocity + critically-damped
-    // spring in the movement loop, or smooth joystick/keyboard deltas). Avoids the
-    // stutter caused by repeatedly restarting a fixed-duration easeTo.
-    function trackFPVCamera() {
-      map.easeTo({
-        center: currentUserCoords,
-        pitch: DEFAULT_PITCH,
-        bearing: userHeading,
-        zoom: 19.5,
-        duration: 0
-      });
-    }
-
-    // FPV camera follows the user marker orientation (Pitch = 60), except during the
-    // one-shot cinematic dive on building selection and while in interior view.
+    // FPV follows the camera to the user marker is disabled: the camera never
+    // auto-realigns. The user is free to pan/zoom/rotate/pitch at any time.
     function followCamera() {
-      if (userInteracting) return;
-      if (controlMode !== 'manual' && !gpsInitialized) return;
-      if (isInteriorView) {
-        map.jumpTo({ center: currentUserCoords, pitch: INTERIOR_PITCH, bearing: 0 });
-        cameraCenter = [...currentUserCoords];
-        return;
-      }
-      if (!isFPVEnabled) return;
-      if (controlMode === 'manual') {
-        cameraCenter = [...currentUserCoords];
-        trackFPVCamera();
-        return;
-      }
-      if (cameraFocusDiving) return;
-      // The intro dive framing survives device orientation and camera rotation changes
-      // and is only released when the user actually translates.
-      if (introFrameHeld) {
-        if (introHoldCoords &&
-            currentUserCoords[0] === introHoldCoords[0] &&
-            currentUserCoords[1] === introHoldCoords[1]) {
-          return;
-        }
-        introFrameHeld = false;
-        introHoldCoords = null;
-      }
-      // GPS + FPV: continuously track the (already-smoothed) marker.
-      cameraCenter = [...currentUserCoords];
-      trackFPVCamera();
+      return;
     }
 
     function resetCameraFollow() {
@@ -1109,32 +1087,85 @@
     function toggleFPVMode(enabled) {
       if (!enabled && isInteriorView) exitInteriorView();
       resetCameraFollow();
-      if (enabled && isInteriorView) { followCamera(); return; }
+      if (enabled && isInteriorView) { updateFPVCamera(); return; }
       if (enabled) {
-        setUserInteracting(false);
-        map.easeTo({ center: currentUserCoords, pitch: DEFAULT_PITCH, bearing: userHeading, zoom: 19.5, duration: 1000 });
+        updateFPVCamera();
       } else {
         resetToOverview();
       }
     }
 
     const compassBtn = document.querySelector('.maplibregl-ctrl-compass');
-    if (compassBtn) {
-      compassBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-
+    if (compassBtn && compassCenter) {
+      function recenterView() {
         if (isFPVEnabled) {
           if (isInteriorView) exitInteriorView();
-          setUserInteracting(false);
           resetCameraFollow();
           updateFPVCamera();
         } else {
           resetToOverview();
         }
-      }, true);
-    }
+      }
 
+      function moveCompassThumb(clientX, clientY) {
+        const rect = compassCenter.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const radius = rect.width / 2 - 22; // leave room for the 42px thumb
+        let dx = clientX - centerX;
+        let dy = clientY - centerY;
+        const distance = Math.hypot(dx, dy);
+        if (distance > radius) {
+          dx = (dx / distance) * radius;
+          dy = (dy / distance) * radius;
+        }
+        compassThumb.style.transform = `translate(${dx}px, ${dy}px)`;
+        compassVector.x = dx / radius;
+        compassVector.y = dy / radius;
+      }
+
+      function resetCompass() {
+        compassActive = false;
+        compassVector = { x: 0, y: 0 };
+        compassDragged = false;
+        compassThumb.style.transform = `translate(0px, 0px)`;
+      }
+
+      compassBtn.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        compassActive = true;
+        compassDragged = false;
+        compassStartClientX = e.clientX;
+        compassBtn.setPointerCapture(e.pointerId);
+        moveCompassThumb(e.clientX, e.clientY);
+      });
+
+      compassBtn.addEventListener('pointermove', (e) => {
+        if (!compassActive) return;
+        if (Math.abs(e.clientX - compassStartClientX) > COMPASS_DRAG_THRESHOLD) {
+          compassDragged = true;
+        }
+        moveCompassThumb(e.clientX, e.clientY);
+      });
+
+      function compassEnd() {
+        const wasDrag = compassDragged;
+        resetCompass();
+        if (!wasDrag) recenterView();
+      }
+
+      compassBtn.addEventListener('pointerup', compassEnd);
+      compassBtn.addEventListener('pointercancel', compassEnd);
+      compassBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }, true);
+      // Block MapLibre's own compass drag-rotate / resetNorth handlers so this
+      // control behaves purely as our joystick (drag rotates, tap recenters).
+      compassBtn.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); }, true);
+      compassBtn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); }, true);
+    }
 
     // --- GALLERY POPUP PANEL LOGIC ---
     const galleryToggleBtn = document.getElementById('gallery-toggle-btn');
@@ -1911,7 +1942,6 @@
         updateNearestEntryMarker();
         updateActiveRouteLine();
         updateInteriorView();
-        followCamera();
         return;
       }
 
@@ -1931,7 +1961,6 @@
         updateNearestEntryMarker();
         updateActiveRouteLine();
         updateInteriorView();
-        followCamera();
         return;
       }
 
@@ -1952,6 +1981,17 @@
     });
 
     function handleMovementLoop() {
+      // --- COMPASS JOYSTICK (drag to rotate bearing / tilt pitch) ---
+      if (compassActive) {
+        if (Math.abs(compassVector.x) > 0.1) {
+          map.setBearing(map.getBearing() - compassVector.x * COMPASS_ROTATE_STEP);
+        }
+        if (Math.abs(compassVector.y) > 0.1) {
+          const newPitch = map.getPitch() - compassVector.y * COMPASS_PITCH_STEP;
+          map.setPitch(Math.min(85, Math.max(0, newPitch)));
+        }
+      }
+
       // --- GPS MODE (runs every frame) ---
       // Dead-reckon between fixes; settle gracefully when fixes go stale.
       if (controlMode === 'gps' && gpsInitialized) {
@@ -1986,7 +2026,6 @@
 
         userMarker.setLngLat(currentUserCoords);
         updateVisionConeOrientation();
-        followCamera();
         checkArrival();
       }
 
@@ -1994,19 +2033,30 @@
         let moved = false;
 
         // --- RIGHT JOYSTICK / KEYBOARD ROTATION ---
+        let turning = false;
         if (rightJoyActive && Math.abs(rightJoyVector.x) > 0.05) {
           userHeading = (userHeading + rightJoyVector.x * ROTATE_STEP * 0.4 + 360) % 360;
-          moved = true;
+          turning = true;
         }
 
         if (activeKeys['a'] || activeKeys['arrowleft']) {
           userHeading = (userHeading - ROTATE_STEP + 360) % 360;
-          moved = true;
+          turning = true;
         }
 
         if (activeKeys['d'] || activeKeys['arrowright']) {
           userHeading = (userHeading + ROTATE_STEP) % 360;
-          moved = true;
+          turning = true;
+        }
+
+        if (turning && isFPVEnabled) {
+          map.easeTo({
+            center: currentUserCoords,
+            pitch: DEFAULT_PITCH,
+            bearing: userHeading,
+            zoom: 19.5,
+            duration: 80
+          });
         }
 
         // --- LEFT JOYSTICK MOVEMENT ---
@@ -2054,7 +2104,6 @@
           updateInteriorView();
         }
 
-        followCamera();
         checkArrival();
       }
 

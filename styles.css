@@ -17,6 +17,42 @@
       height: 44px !important;
     }
 
+    /* Center the compass, styled like the manual-mode joystick (rose thumb) */
+    .compass-center {
+      position: absolute;
+      bottom: 110px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 20;
+      width: 100px;
+      height: 100px;
+      background: rgba(255, 255, 255, 0.25);
+      backdrop-filter: blur(8px);
+      border: 2px solid rgba(255, 255, 255, 0.6);
+      border-radius: 50%;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: none;
+    }
+
+    .compass-center .maplibregl-ctrl-compass {
+      width: 42px;
+      height: 42px;
+      display: block;
+      border-radius: 50%;
+      border: 3px solid #ffffff;
+      background: #e11d48;
+      box-shadow: 0 4px 12px rgba(225, 29, 72, 0.5);
+      cursor: pointer;
+      touch-action: none;
+    }
+
+    .compass-center .maplibregl-ctrl-icon {
+      display: none;
+    }
+
     /* --- SIDE PANEL (TOP LEFT) --- */
     .sidebar-toggle-btn {
       position: absolute;
