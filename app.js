@@ -17,8 +17,7 @@
       zoom: INITIAL_ZOOM,
       pitch: DEFAULT_PITCH,
       bearing: DEFAULT_BEARING,
-      maxPitch: 85, // Enforces allowing the camera to go very low to the ground
-      maxBounds: BOUNDING_BOX
+      maxPitch: 85 // Enforces allowing the camera to go very low to the ground
     });
 
     map.keyboard.disable();
@@ -36,8 +35,8 @@
     let introFrameHeld = false;      // holds the post-dive framing until the user translates
     let introHoldCoords = null;      // position captured when the dive framing was held
 
-    const modeIndicator = document.getElementById('mode-indicator');
     const manualModeBtn = document.getElementById('manual-mode-btn');
+    const gpsRecalibrateBtn = document.getElementById('gps-recalibrate-btn');
     const joystickLeft = document.getElementById('joystick-left');
     const joystickThumbLeft = document.getElementById('joystick-thumb-left');
     const joystickRight = document.getElementById('joystick-right');
@@ -47,7 +46,6 @@
     const blockSelectModal = document.getElementById('block-select-modal');
     const legendsToggleBtn = document.getElementById('legends-toggle-btn');
     const legendsPopup = document.getElementById('legends-popup');
-    const outOfBoundsBanner = document.getElementById('oob-banner');
     const interiorBadge = document.getElementById('interior-badge');
     const arrivalNotification = document.getElementById('arrival-notification');
     let hasArrived = false;
@@ -485,8 +483,6 @@
     // --- GPS POSITION SMOOTHING, HEADING RESOLUTION & OOB DETECTION ---
     let hasCompassHeading = false;
     let hasGpsHeading = false;
-    let wasOutOfBounds = false;
-    let oobDismissed = false;
 
     const GPS_DEADBAND = 0.0000135;       // ~1.5m
     const ON_NETWORK_THRESHOLD = GPS_DEADBAND * 4; // ~6m — from path -> hide helper line
@@ -512,22 +508,6 @@
 
     let targetCoords = [...START_COORDINATE];  // GPS-filtered destination
 
-    function updateOutOfBoundsState(out) {
-      if (!out) {
-        if (wasOutOfBounds) {
-          wasOutOfBounds = false;
-          oobDismissed = false;
-        }
-        outOfBoundsBanner.classList.remove('show');
-        return;
-      }
-      if (oobDismissed) return;
-      if (!wasOutOfBounds) {
-        wasOutOfBounds = true;
-        outOfBoundsBanner.classList.add('show');
-      }
-    }
-
     function updateHeadingAvailability() {
       if (controlMode === 'manual') return;
       if (!(hasCompassHeading || hasGpsHeading)) {
@@ -541,10 +521,6 @@
         gpsSignalLost = false;
         userContainer.classList.remove('gps-lost');
       }
-      const outOfBounds = lng < BOUNDING_BOX[0][0] || lng > BOUNDING_BOX[1][0] ||
-                          lat < BOUNDING_BOX[0][1] || lat > BOUNDING_BOX[1][1];
-      updateOutOfBoundsState(outOfBounds);
-
       if (heading !== null && !isNaN(heading)) {
         hasGpsHeading = true;
         userHeading = heading;
@@ -552,8 +528,8 @@
 
       if (typeof userMarker === 'undefined') return;
 
-      const clampedLng = Math.max(BOUNDING_BOX[0][0], Math.min(BOUNDING_BOX[1][0], lng));
-      const clampedLat = Math.max(BOUNDING_BOX[0][1], Math.min(BOUNDING_BOX[1][1], lat));
+      const clampedLng = lng;
+      const clampedLat = lat;
 
       // First fix: snap both coords to the real position, show marker, ease map.
       if (!gpsInitialized) {
@@ -618,11 +594,6 @@
       updateHeadingAvailability();
     }
 
-    document.getElementById('oob-dismiss').addEventListener('click', () => {
-      oobDismissed = true;
-      outOfBoundsBanner.classList.remove('show');
-    });
-
     // --- GPS RETRY / RECALIBRATE ---
     function recalibrateGPS() {
       gpsInitialized = false;
@@ -667,11 +638,10 @@
       if (controlMode === 'gps') {
         controlMode = 'manual';
         setUserInteracting(false);
-        modeIndicator.textContent = 'Mode: Manual Controller (Joysticks / WASD)';
-        modeIndicator.classList.add('manual');
         manualModeBtn.classList.add('active');
         joystickLeft.classList.add('active');
         joystickRight.classList.add('active');
+        if (gpsRecalibrateBtn) gpsRecalibrateBtn.style.display = 'none';
         currentUserCoords = [...START_COORDINATE];
         targetCoords = [...START_COORDINATE];
         userMarker.setLngLat(currentUserCoords);
@@ -680,28 +650,21 @@
       } else {
         controlMode = 'gps';
         setUserInteracting(false);
-        modeIndicator.textContent = 'Mode: Live GPS';
-        modeIndicator.classList.remove('manual');
         manualModeBtn.classList.remove('active');
         joystickLeft.classList.remove('active');
         joystickRight.classList.remove('active');
+        if (gpsRecalibrateBtn) gpsRecalibrateBtn.style.display = '';
         initDeviceOrientation();
       }
     }
 
-    modeIndicator.addEventListener('click', (e) => {
-      const recalibrateIcon = modeIndicator.querySelector('.gps-recalibrate');
-      if (recalibrateIcon && recalibrateIcon.contains(e.target)) {
-        recalibrateGPS();
-        return;
-      }
-      if (modeIndicator.classList.contains('gps-unavailable')) {
-        recalibrateGPS();
-        return;
-      }
-    });
-
     manualModeBtn.addEventListener('click', toggleControlMode);
+
+    if (gpsRecalibrateBtn) {
+      gpsRecalibrateBtn.addEventListener('click', () => {
+        if (controlMode === 'gps') recalibrateGPS();
+      });
+    }
 
     // --- DUAL JOYSTICK CONTROL SYSTEM ---
     const JOYSTICK_RADIUS = 50;
@@ -1076,9 +1039,22 @@
       });
     }
 
+    // Continuous per-frame FPV camera tracking. Instant placement (duration: 0);
+    // smoothness comes from the marker's own motion (velocity + critically-damped
+    // spring in the movement loop, or smooth joystick/keyboard deltas). Avoids the
+    // stutter caused by repeatedly restarting a fixed-duration easeTo.
+    function trackFPVCamera() {
+      map.easeTo({
+        center: currentUserCoords,
+        pitch: DEFAULT_PITCH,
+        bearing: userHeading,
+        zoom: 19.5,
+        duration: 0
+      });
+    }
+
     // FPV camera follows the user marker orientation (Pitch = 60), except during the
     // one-shot cinematic dive on building selection and while in interior view.
-    // Camera deadband: only pan when marker moves beyond CAMERA_DEADBAND_M.
     function followCamera() {
       if (userInteracting) return;
       if (controlMode !== 'manual' && !gpsInitialized) return;
@@ -1089,10 +1065,8 @@
       }
       if (!isFPVEnabled) return;
       if (controlMode === 'manual') {
-        if (distanceBetweenCoords(currentUserCoords, cameraCenter) > CAMERA_DEADBAND_M) {
-          cameraCenter = [...currentUserCoords];
-        }
-        updateFPVCamera();
+        cameraCenter = [...currentUserCoords];
+        trackFPVCamera();
         return;
       }
       if (cameraFocusDiving) return;
@@ -1107,11 +1081,9 @@
         introFrameHeld = false;
         introHoldCoords = null;
       }
-      // GPS + FPV: only pan if marker moved beyond deadband
-      if (distanceBetweenCoords(currentUserCoords, cameraCenter) > CAMERA_DEADBAND_M) {
-        cameraCenter = [...currentUserCoords];
-        updateFPVCamera();
-      }
+      // GPS + FPV: continuously track the (already-smoothed) marker.
+      cameraCenter = [...currentUserCoords];
+      trackFPVCamera();
     }
 
     function resetCameraFollow() {
@@ -2071,8 +2043,8 @@
         }
 
         if (moved) {
-          currentUserCoords[0] = Math.max(BOUNDING_BOX[0][0], Math.min(BOUNDING_BOX[1][0], leftJoyActive ? currentUserCoords[0] : nextLng));
-          currentUserCoords[1] = Math.max(BOUNDING_BOX[0][1], Math.min(BOUNDING_BOX[1][1], leftJoyActive ? currentUserCoords[1] : nextLat));
+          currentUserCoords[0] = leftJoyActive ? currentUserCoords[0] : nextLng;
+          currentUserCoords[1] = leftJoyActive ? currentUserCoords[1] : nextLat;
 
           userMarker.setLngLat(currentUserCoords);
           updateVisionConeOrientation();

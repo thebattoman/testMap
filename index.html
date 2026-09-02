@@ -62,9 +62,6 @@
     <p class="privacy-note">Your location and orientation are processed only on this device — nothing is stored or shared.</p>
   </div>
 
-  <!-- Mode Status Indicator (Clickable to Toggle Modes) -->
-  <div id="mode-indicator" class="mode-indicator">Mode: Live GPS<span class="gps-recalibrate" title="Recalibrate GPS">&#x21bb;</span></div>
-
   <!-- Interior View Badge -->
   <div id="interior-badge" class="interior-badge">
     <span id="interior-badge-title">Block C &middot; Interior View</span>
@@ -82,12 +79,6 @@
 
   <!-- Arrival Notification -->
   <div id="arrival-notification" class="arrival-notification">You have arrived</div>
-
-  <!-- Out-of-Bounds Warning Banner -->
-  <div id="oob-banner" class="oob-banner">
-    <span>You are outside the mapped campus area. Position clamped.</span>
-    <button id="oob-dismiss" type="button">&times;</button>
-  </div>
 
   <!-- Left Joystick (Movement) for Manual Mode -->
   <div id="joystick-left" class="joystick-container">
@@ -171,6 +162,14 @@
       </div>
     </div>
   </div>
+
+  <!-- GPS Recalibrate Button (Bottom-Left, above Manual Mode Toggle) -->
+  <button id="gps-recalibrate-btn" class="gps-recalibrate-btn" title="Recalibrate GPS">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+      <path d="M21 3v6h-6"/>
+    </svg>
+  </button>
 
   <!-- Manual Mode Toggle Button (Bottom-Left, above Gallery) -->
   <button id="manual-mode-btn" class="manual-mode-btn" title="Toggle Manual Controller">
