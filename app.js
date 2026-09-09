@@ -408,13 +408,8 @@
       visionConeSvg.style.display = '';
       setInteriorLayersVisibility('none');
 
-      if (selectedLocationKey) {
-        if (map.getLayer('buildings-3d-layer')) {
-          map.setLayoutProperty('buildings-3d-layer', 'visibility', 'visible');
-        }
-        if (blockMarkers[selectedLocationKey]) {
-          blockMarkers[selectedLocationKey].addTo(map);
-        }
+      if (map.getLayer('buildings-3d-layer')) {
+        map.setLayoutProperty('buildings-3d-layer', 'visibility', 'visible');
       }
 
       if (isFPVEnabled) {
@@ -1474,46 +1469,10 @@
     let activeNearestEntryMarker = null;
 
     function updateNearestEntryMarker() {
-      if (!selectedLocationKey) {
-        if (activeNearestEntryMarker) {
-          activeNearestEntryMarker.remove();
-          activeNearestEntryMarker = null;
-        }
-        return;
-      }
-
-      const targetBlock = BLOCKS[selectedLocationKey];
-      if (!targetBlock) return;
-
-      let targetPoint = targetBlock.coords;
-      if (targetBlock.entries && targetBlock.entries.length > 0) {
-        let nearestEntry = targetBlock.entries[0];
-        let minDistanceSq = calculateDistanceSq(currentUserCoords, nearestEntry);
-
-        for (let i = 1; i < targetBlock.entries.length; i++) {
-          const distSq = calculateDistanceSq(currentUserCoords, targetBlock.entries[i]);
-          if (distSq < minDistanceSq) {
-            minDistanceSq = distSq;
-            nearestEntry = targetBlock.entries[i];
-          }
-        }
-        targetPoint = nearestEntry;
-      }
-
-      const targetBearing = calculateBearing(
-        targetPoint[0], targetPoint[1],
-        targetBlock.coords[0], targetBlock.coords[1]
-      );
-      const relativeBearing = targetBearing - map.getBearing();
-
       if (activeNearestEntryMarker) {
         activeNearestEntryMarker.remove();
+        activeNearestEntryMarker = null;
       }
-
-      const arrowEl = createArrowElement(relativeBearing);
-      activeNearestEntryMarker = new maplibregl.Marker({ element: arrowEl })
-        .setLngLat(targetPoint)
-        .addTo(map);
     }
 
     map.on('rotate', updateNearestEntryMarker);
@@ -1628,8 +1587,6 @@
         Object.keys(blockMarkers).forEach(k => {
           blockMarkers[k].remove();
         });
-
-        blockMarkers[selectedKey].addTo(map);
 
         showBuilding(selectedKey);
 
@@ -1819,7 +1776,6 @@
 
     startGPSWatch();
 
-    const MOVE_STEP = 0.000015; 
     const KEYBOARD_MOVE_STEP = 0.000008;
     const ROTATE_STEP = 3.0;    
 
@@ -2093,6 +2049,13 @@
       if (controlMode === 'manual' && !pongActive) {
         let moved = false;
 
+        // Left joystick acts like the keyboard: up/down move forward/back,
+        // left/right turn. Discrete (past ~50% deflection = key held).
+        const joyW = leftJoyActive && leftJoyVector.y < -0.5;
+        const joyS = leftJoyActive && leftJoyVector.y > 0.5;
+        const joyA = leftJoyActive && leftJoyVector.x < -0.5;
+        const joyD = leftJoyActive && leftJoyVector.x > 0.5;
+
         // --- RIGHT JOYSTICK / KEYBOARD ROTATION ---
         let turning = false;
         if (rightJoyActive && Math.abs(rightJoyVector.x) > 0.05) {
@@ -2100,12 +2063,12 @@
           turning = true;
         }
 
-        if (activeKeys['a'] || activeKeys['arrowleft']) {
+        if (joyA || activeKeys['a'] || activeKeys['arrowleft']) {
           userHeading = (userHeading - ROTATE_STEP + 360) % 360;
           turning = true;
         }
 
-        if (activeKeys['d'] || activeKeys['arrowright']) {
+        if (joyD || activeKeys['d'] || activeKeys['arrowright']) {
           userHeading = (userHeading + ROTATE_STEP) % 360;
           turning = true;
         }
@@ -2119,24 +2082,11 @@
           });
         }
 
-        // --- LEFT JOYSTICK MOVEMENT ---
-        if (leftJoyActive && (Math.abs(leftJoyVector.x) > 0.1 || Math.abs(leftJoyVector.y) > 0.1)) {
-          const inputAngleRad = Math.atan2(leftJoyVector.x, -leftJoyVector.y);
-
-          const moveAngleRad = userHeading * (Math.PI / 180) + inputAngleRad;
-          const speedFactor = Math.hypot(leftJoyVector.x, leftJoyVector.y);
-          const currentSpeed = (MOVE_STEP * 0.35) * Math.min(1, speedFactor);
-
-          currentUserCoords[0] += Math.sin(moveAngleRad) * currentSpeed;
-          currentUserCoords[1] += Math.cos(moveAngleRad) * currentSpeed;
-          moved = true;
-        }
-
-        // --- KEYBOARD TRANSLATION ---
+        // --- FORWARD / BACKWARD (keyboard + left joystick) ---
         let nextLng = currentUserCoords[0];
         let nextLat = currentUserCoords[1];
 
-        if (activeKeys['w'] || activeKeys['arrowup']) {
+        if (joyW || activeKeys['w'] || activeKeys['arrowup']) {
           const rad = userHeading * (Math.PI / 180);
           const step = isFPVEnabled ? KEYBOARD_MOVE_STEP * 0.35 : KEYBOARD_MOVE_STEP;
           nextLng += Math.sin(rad) * step;
@@ -2144,7 +2094,7 @@
           moved = true;
         }
 
-        if (activeKeys['s'] || activeKeys['arrowdown']) {
+        if (joyS || activeKeys['s'] || activeKeys['arrowdown']) {
           const rad = userHeading * (Math.PI / 180);
           const step = isFPVEnabled ? KEYBOARD_MOVE_STEP * 0.35 : KEYBOARD_MOVE_STEP;
           nextLng -= Math.sin(rad) * step;
@@ -2153,8 +2103,8 @@
         }
 
         if (moved) {
-          currentUserCoords[0] = leftJoyActive ? currentUserCoords[0] : nextLng;
-          currentUserCoords[1] = leftJoyActive ? currentUserCoords[1] : nextLat;
+          currentUserCoords[0] = nextLng;
+          currentUserCoords[1] = nextLat;
 
           userMarker.setLngLat(currentUserCoords);
           updateVisionConeOrientation();
