@@ -457,9 +457,13 @@
       }
 
       hasCompassHeading = heading !== null && !isNaN(heading);
-      if (hasCompassHeading) {
-        userHeading = heading;
-        updateVisionConeOrientation();
+      if (hasCompassHeading && controlMode === 'gps') {
+        // Let a fresh GPS heading stay authoritative; otherwise blend the
+        // magnetometer instead of hard-setting so the vision cone stops trembling.
+        if (performance.now() >= gpsHeadingFreshUntil) {
+          userHeading = smoothAngle(userHeading, heading, 0.12);
+          updateVisionConeOrientation();
+        }
       }
       updateHeadingAvailability();
     }
@@ -492,9 +496,17 @@
     const GPS_MAX_SPEED_MPS = 2.5;        // brisk walking pace clamp for dead-reckoning
     const GPS_STALE_AFTER_MS = 1500;      // fixes older than this stop extrapolation
     const GPS_VELOCITY_DECAY = 0.85;      // per-frame decay once fixes go stale (frame-graceful settle)
+    const TARGET_SMOOTH_HZ = 3;           // two-stage filter: target catches a fix in ~0.33s
+    const POS_SMOOTH_HZ = 12;             // displayed position follows the smoothed target in ~80ms
+    const VEL_FILTER_ALPHA = 0.35;        // per-fix EMA on the velocity vector (m/s)
+    const GPS_HEADING_FRESH_MS = 3000;    // GPS heading stays authoritative this long after a fix
 
-    let gpsVelocityX = 0;                 // deg/frame along lng
-    let gpsVelocityY = 0;                 // deg/frame along lat
+    let gpsVelMpsE = 0;                   // m/s east, EMA-filtered from fix displacement
+    let gpsVelMpsN = 0;                   // m/s north, EMA-filtered
+    let smoothTargE = 0;                  // two-stage filter: smoothed target offset (m east of display)
+    let smoothTargN = 0;                  // two-stage filter: smoothed target offset (m north of display)
+    let gpsHeadingFreshUntil = 0;         // while now < this, smoothed compass stays quiet
+    let lastLoopTime = performance.now(); // frame-rate independent GPS smoothing
     let gpsSpeedEstimate = 0;             // m/s, smoothed from fix-to-fix displacement
     let lastFixLat = null;
     let lastFixLng = null;
@@ -516,6 +528,12 @@
       }
     }
 
+    // Blend two angles via the shortest wrap-around path (smooths sensor noise).
+    function smoothAngle(current, target, alpha) {
+      const diff = ((target - current + 540) % 360) - 180;
+      return (current + diff * alpha + 360) % 360;
+    }
+
     function applyGpsFix(lng, lat, heading) {
       if (gpsSignalLost) {
         gpsSignalLost = false;
@@ -523,7 +541,8 @@
       }
       if (heading !== null && !isNaN(heading)) {
         hasGpsHeading = true;
-        userHeading = heading;
+        gpsHeadingFreshUntil = performance.now() + GPS_HEADING_FRESH_MS;
+        userHeading = smoothAngle(userHeading, heading, 0.5);
       }
 
       if (typeof userMarker === 'undefined') return;
@@ -538,6 +557,10 @@
         currentUserCoords[1] = clampedLat;
         targetCoords[0] = clampedLng;
         targetCoords[1] = clampedLat;
+        smoothTargE = 0;
+        smoothTargN = 0;
+        gpsVelMpsE = 0;
+        gpsVelMpsN = 0;
         userMarker.setLngLat(currentUserCoords);
         userContainer.style.display = '';
         updateVisionConeOrientation();
@@ -554,26 +577,24 @@
         return;
       }
 
-      // Velocity estimate from real fix-to-fix displacement (deg/sec, clamped to walking pace).
+      // Velocity estimate from fix-to-fix displacement in meters/sec (EMA-smoothed).
       const now = performance.now();
       if (lastFixLng !== null && lastFixLat !== null) {
         const dtSec = (now - lastFixTime) / 1000;
         if (dtSec > 0) {
-          let vx = (clampedLng - lastFixLng) / dtSec;
-          let vy = (clampedLat - lastFixLat) / dtSec;
-          const speedMps = Math.hypot(
-            vx * Math.cos(clampedLat * Math.PI / 180) * 111320,
-            vy * 111320
-          );
+          const cosLat = Math.cos(clampedLat * Math.PI / 180);
+          let vEastMps = (clampedLng - lastFixLng) / dtSec * cosLat * 111320;
+          let vNorthMps = (clampedLat - lastFixLat) / dtSec * 111320;
+          const speedMps = Math.hypot(vEastMps, vNorthMps);
           gpsSpeedEstimate = gpsSpeedEstimate * 0.7 + speedMps * 0.3;
           if (speedMps > GPS_MAX_SPEED_MPS && speedMps > 0) {
             const scale = GPS_MAX_SPEED_MPS / speedMps;
-            vx *= scale;
-            vy *= scale;
+            vEastMps *= scale;
+            vNorthMps *= scale;
           }
-          if (!isNaN(vx) && !isNaN(vy)) {
-            gpsVelocityX = vx / 60;
-            gpsVelocityY = vy / 60;
+          if (!isNaN(vEastMps) && !isNaN(vNorthMps)) {
+            gpsVelMpsE = gpsVelMpsE * (1 - VEL_FILTER_ALPHA) + vEastMps * VEL_FILTER_ALPHA;
+            gpsVelMpsN = gpsVelMpsN * (1 - VEL_FILTER_ALPHA) + vNorthMps * VEL_FILTER_ALPHA;
           }
         }
       }
@@ -681,8 +702,8 @@
     let compassStartClientX = 0;
     let compassDragged = false;
     const COMPASS_DRAG_THRESHOLD = 6;   // px before a press counts as a drag
-    const COMPASS_ROTATE_STEP = 0.5;    // degrees per normalized x per frame
-    const COMPASS_PITCH_STEP = 0.4;     // degrees per normalized y per frame
+    const COMPASS_ROTATE_STEP = 1.2;    // degrees per normalized x per frame
+    const COMPASS_PITCH_STEP = 1.0;     // degrees per normalized y per frame
 
     function handleJoystickMove(container, thumb, clientX, clientY, vectorObj) {
       const rect = container.getBoundingClientRect();
@@ -1333,36 +1354,68 @@
     }
 
     // Find the nearest point across ALL known building route lines (soft-match source).
-    function getNearestSegmentAcrossRoutes(coord) {
-      let closestPoint = coord;
-      let minDistSq = Infinity;
+    // Segments are flattened once (cheap thereafter) and the winning segment is
+    // remembered so crossings don't flick the target between adjacent walkways.
+    let cachedSegments = null;
+    let lastAttractSegIndex = -1;
 
+    function getRouteSegments() {
+      if (cachedSegments) return cachedSegments;
+      cachedSegments = [];
       Object.keys(BLOCKS).forEach((blockKey) => {
         const block = BLOCKS[blockKey];
         if (!block || !block.route) return;
         const lineCoords = getRouteCoords(block.route);
         if (!lineCoords || lineCoords.length < 2) return;
         for (let i = 0; i < lineCoords.length - 1; i++) {
-          const projected = getClosestPointOnSegment(coord, lineCoords[i], lineCoords[i + 1]);
-          const distSq = calculateDistanceSq(coord, projected);
-          if (distSq < minDistSq) {
-            minDistSq = distSq;
-            closestPoint = projected;
-          }
+          cachedSegments.push({ a: lineCoords[i], b: lineCoords[i + 1] });
         }
       });
+      return cachedSegments;
+    }
+
+    function projectToSegment(coord, seg) {
+      return getClosestPointOnSegment(coord, seg.a, seg.b);
+    }
+
+    function segmentDistM(coord, point, lat) {
+      const cosLat = Math.cos(lat * Math.PI / 180);
+      return Math.hypot(
+        (coord[0] - point[0]) * cosLat * 111320,
+        (coord[1] - point[1]) * 111320
+      );
+    }
+
+    function getNearestSegmentAcrossRoutes(coord) {
+      const segments = getRouteSegments();
+      let closestPoint = coord;
+      let minDistSq = Infinity;
+
+      for (let i = 0; i < segments.length; i++) {
+        const projected = projectToSegment(coord, segments[i]);
+        const distSq = calculateDistanceSq(coord, projected);
+        if (distSq < minDistSq) {
+          minDistSq = distSq;
+          closestPoint = projected;
+          lastAttractSegIndex = i;
+        }
+      }
 
       return closestPoint;
     }
 
     // Soft lane attractor: blend raw fix toward nearest walkway within LANE_ATTRACT_RADIUS_M.
     function applyLaneAttractor(lng, lat) {
-      const projected = getNearestSegmentAcrossRoutes([lng, lat]);
-      const cosLat = Math.cos(lat * Math.PI / 180);
-      const distM = Math.hypot(
-        (lng - projected[0]) * cosLat * 111320,
-        (lat - projected[1]) * 111320
-      );
+      const coord = [lng, lat];
+      let projected;
+      if (lastAttractSegIndex >= 0) {
+        const prev = getRouteSegments()[lastAttractSegIndex];
+        if (prev) projected = projectToSegment(coord, prev);
+      }
+      if (projected === undefined || segmentDistM(coord, projected, lat) >= LANE_ATTRACT_RADIUS_M) {
+        projected = getNearestSegmentAcrossRoutes(coord);
+      }
+      const distM = segmentDistM(coord, projected, lat);
       if (distM >= LANE_ATTRACT_RADIUS_M) return [lng, lat];
       const weight = 1 - distM / LANE_ATTRACT_RADIUS_M;
       return [
@@ -1981,6 +2034,11 @@
     });
 
     function handleMovementLoop() {
+      // Frame-rate independent time step for the GPS smoothing cascade.
+      const loopNow = performance.now();
+      const dtSec = Math.min(0.15, Math.max(0, (loopNow - lastLoopTime) / 1000));
+      lastLoopTime = loopNow;
+
       // --- COMPASS JOYSTICK (drag to rotate bearing / tilt pitch) ---
       if (compassActive) {
         if (Math.abs(compassVector.x) > 0.1) {
@@ -1993,36 +2051,38 @@
       }
 
       // --- GPS MODE (runs every frame) ---
-      // Dead-reckon between fixes; settle gracefully when fixes go stale.
+      // Two-stage critically-damped cascade (meters, frame-rate independent): a
+      // smoothed target dead-reckons and chases the attracted fix, then the
+      // displayed position chases that target. No overshoot, no snap-back on
+      // each ~1Hz fix.
       if (controlMode === 'gps' && gpsInitialized) {
         const now = performance.now();
-        if (now - lastGpsFixTime < GPS_STALE_AFTER_MS) {
-          // Extrapolate at measured (clamped) velocity; decay once ops slow down.
-          if (gpsVelocityX !== 0 || gpsVelocityY !== 0) {
-            const recency = Math.max(0, 1 - (now - lastGpsFixTime) / GPS_STALE_AFTER_MS);
-            currentUserCoords[0] += gpsVelocityX * recency;
-            currentUserCoords[1] += gpsVelocityY * recency;
-          }
-        } else {
-          // Frame-graceful settle: ease velocity to zero like a body coming to rest.
-          gpsVelocityX *= GPS_VELOCITY_DECAY;
-          gpsVelocityY *= GPS_VELOCITY_DECAY;
-          if (Math.abs(gpsVelocityX) > 1e-10 || Math.abs(gpsVelocityY) > 1e-10) {
-            currentUserCoords[0] += gpsVelocityX;
-            currentUserCoords[1] += gpsVelocityY;
-          }
+        const cosLat = Math.cos(currentUserCoords[1] * Math.PI / 180);
+
+        const fixEastM = (targetCoords[0] - currentUserCoords[0]) * cosLat * 111320;
+        const fixNorthM = (targetCoords[1] - currentUserCoords[1]) * 111320;
+
+        if (now - lastGpsFixTime >= GPS_STALE_AFTER_MS) {
+          // Graceful settle: ease velocity toward zero, no dead-reckoning.
+          gpsVelMpsE *= GPS_VELOCITY_DECAY;
+          gpsVelMpsN *= GPS_VELOCITY_DECAY;
         }
 
-        // Critically-damped spring toward the (attractor-filtered) target fix,
-        // so near fixes blend in without rubber-banding against extrapolation.
-        const dx = targetCoords[0] - currentUserCoords[0];
-        const dy = targetCoords[1] - currentUserCoords[1];
-        const dist = Math.hypot(dx, dy);
-        if (dist > 1e-9) {
-          const spring = Math.min(1, 0.18 + dist * 2000);
-          currentUserCoords[0] += dx * spring;
-          currentUserCoords[1] += dy * spring;
-        }
+        // Stage 1: smoothed target dead-reckons + chases the attracted fix.
+        smoothTargE += gpsVelMpsE * dtSec;
+        smoothTargN += gpsVelMpsN * dtSec;
+        const tAlpha = Math.min(1, dtSec * TARGET_SMOOTH_HZ);
+        smoothTargE += (fixEastM - smoothTargE) * tAlpha;
+        smoothTargN += (fixNorthM - smoothTargN) * tAlpha;
+
+        // Stage 2: displayed position chases the smoothed target, then consume.
+        const pAlpha = Math.min(1, dtSec * POS_SMOOTH_HZ);
+        const stepE = smoothTargE * pAlpha;
+        const stepN = smoothTargN * pAlpha;
+        currentUserCoords[0] += stepE / (cosLat * 111320);
+        currentUserCoords[1] += stepN / 111320;
+        smoothTargE -= stepE;
+        smoothTargN -= stepN;
 
         userMarker.setLngLat(currentUserCoords);
         updateVisionConeOrientation();
@@ -2050,12 +2110,11 @@
         }
 
         if (turning && isFPVEnabled) {
-          map.easeTo({
+          map.jumpTo({
             center: currentUserCoords,
-            pitch: DEFAULT_PITCH,
             bearing: userHeading,
-            zoom: 19.5,
-            duration: 80
+            pitch: DEFAULT_PITCH,
+            zoom: 19.5
           });
         }
 
@@ -2102,6 +2161,10 @@
           updateNearestEntryMarker();
           updateActiveRouteLine();
           updateInteriorView();
+        }
+
+        if (moved && isFPVEnabled) {
+          map.jumpTo({ center: currentUserCoords });
         }
 
         checkArrival();
