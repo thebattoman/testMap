@@ -2057,18 +2057,23 @@
         const joyD = leftJoyActive && leftJoyVector.x > 0.5;
 
         // --- RIGHT JOYSTICK / KEYBOARD ROTATION ---
+        // Left joystick horizontal turns the USER only — never the FPV camera.
+        if (joyA) userHeading = (userHeading - ROTATE_STEP + 360) % 360;
+        if (joyD) userHeading = (userHeading + ROTATE_STEP) % 360;
+        updateVisionConeOrientation();
+
         let turning = false;
         if (rightJoyActive && Math.abs(rightJoyVector.x) > 0.05) {
           userHeading = (userHeading + rightJoyVector.x * ROTATE_STEP * 0.4 + 360) % 360;
           turning = true;
         }
 
-        if (joyA || activeKeys['a'] || activeKeys['arrowleft']) {
+        if (!joyA && (activeKeys['a'] || activeKeys['arrowleft'])) {
           userHeading = (userHeading - ROTATE_STEP + 360) % 360;
           turning = true;
         }
 
-        if (joyD || activeKeys['d'] || activeKeys['arrowright']) {
+        if (!joyD && (activeKeys['d'] || activeKeys['arrowright'])) {
           userHeading = (userHeading + ROTATE_STEP) % 360;
           turning = true;
         }
