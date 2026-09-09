@@ -659,9 +659,7 @@
         joystickLeft.classList.add('active');
         joystickRight.classList.add('active');
         if (gpsRecalibrateBtn) gpsRecalibrateBtn.style.display = 'none';
-        currentUserCoords = [...START_COORDINATE];
-        targetCoords = [...START_COORDINATE];
-        userMarker.setLngLat(currentUserCoords);
+        targetCoords = [...currentUserCoords];  // sync GPS pipeline for re-entry
         userContainer.style.display = '';
         map.easeTo({ center: currentUserCoords, zoom: INITIAL_ZOOM, pitch: DEFAULT_PITCH, bearing: DEFAULT_BEARING, duration: 800 });
       } else {
@@ -2048,32 +2046,27 @@
 
       if (controlMode === 'manual' && !pongActive) {
         let moved = false;
-
-        // Left joystick acts like the keyboard: up/down move forward/back,
-        // left/right turn. Discrete (past ~50% deflection = key held).
-        const joyW = leftJoyActive && leftJoyVector.y < -0.5;
-        const joyS = leftJoyActive && leftJoyVector.y > 0.5;
-        const joyA = leftJoyActive && leftJoyVector.x < -0.5;
-        const joyD = leftJoyActive && leftJoyVector.x > 0.5;
-
-        // --- RIGHT JOYSTICK / KEYBOARD ROTATION ---
-        // Left joystick horizontal turns the USER only — never the FPV camera.
-        if (joyA) userHeading = (userHeading - ROTATE_STEP + 360) % 360;
-        if (joyD) userHeading = (userHeading + ROTATE_STEP) % 360;
-        updateVisionConeOrientation();
-
         let turning = false;
+
+        // --- RIGHT JOYSTICK: CAMERA YAW + PITCH ---
+        // Horizontal rotates heading + camera; vertical pitches the camera.
         if (rightJoyActive && Math.abs(rightJoyVector.x) > 0.05) {
           userHeading = (userHeading + rightJoyVector.x * ROTATE_STEP * 0.4 + 360) % 360;
           turning = true;
         }
+        if (rightJoyActive && Math.abs(rightJoyVector.y) > 0.05) {
+          const newPitch = map.getPitch() - rightJoyVector.y * COMPASS_PITCH_STEP;
+          map.setPitch(Math.min(85, Math.max(0, newPitch)));
+        }
+        updateVisionConeOrientation();
 
-        if (!joyA && (activeKeys['a'] || activeKeys['arrowleft'])) {
+        // --- KEYBOARD ROTATION ---
+        if (activeKeys['a'] || activeKeys['arrowleft']) {
           userHeading = (userHeading - ROTATE_STEP + 360) % 360;
           turning = true;
         }
 
-        if (!joyD && (activeKeys['d'] || activeKeys['arrowright'])) {
+        if (activeKeys['d'] || activeKeys['arrowright']) {
           userHeading = (userHeading + ROTATE_STEP) % 360;
           turning = true;
         }
@@ -2082,16 +2075,15 @@
           map.jumpTo({
             center: currentUserCoords,
             bearing: userHeading,
-            pitch: DEFAULT_PITCH,
             zoom: 19.5
           });
         }
 
-        // --- FORWARD / BACKWARD (keyboard + left joystick) ---
+        // --- FORWARD / BACKWARD (keyboard) ---
         let nextLng = currentUserCoords[0];
         let nextLat = currentUserCoords[1];
 
-        if (joyW || activeKeys['w'] || activeKeys['arrowup']) {
+        if (activeKeys['w'] || activeKeys['arrowup']) {
           const rad = userHeading * (Math.PI / 180);
           const step = isFPVEnabled ? KEYBOARD_MOVE_STEP * 0.35 : KEYBOARD_MOVE_STEP;
           nextLng += Math.sin(rad) * step;
@@ -2099,11 +2091,22 @@
           moved = true;
         }
 
-        if (joyS || activeKeys['s'] || activeKeys['arrowdown']) {
+        if (activeKeys['s'] || activeKeys['arrowdown']) {
           const rad = userHeading * (Math.PI / 180);
           const step = isFPVEnabled ? KEYBOARD_MOVE_STEP * 0.35 : KEYBOARD_MOVE_STEP;
           nextLng -= Math.sin(rad) * step;
           nextLat -= Math.cos(rad) * step;
+          moved = true;
+        }
+
+        // --- LEFT JOYSTICK: MOVE CHARACTER (relative to facing, strafe) ---
+        if (leftJoyActive && (Math.abs(leftJoyVector.x) > 0.1 || Math.abs(leftJoyVector.y) > 0.1)) {
+          const inputAngleRad = Math.atan2(leftJoyVector.x, -leftJoyVector.y);
+          const moveAngleRad = userHeading * (Math.PI / 180) + inputAngleRad;
+          const speedFactor = Math.min(1, Math.hypot(leftJoyVector.x, leftJoyVector.y));
+          const stepRef = isFPVEnabled ? KEYBOARD_MOVE_STEP * 0.35 : KEYBOARD_MOVE_STEP;
+          nextLng += Math.sin(moveAngleRad) * stepRef * speedFactor;
+          nextLat += Math.cos(moveAngleRad) * stepRef * speedFactor;
           moved = true;
         }
 
