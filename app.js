@@ -449,6 +449,7 @@
 
     // --- DEVICE ORIENTATION COMPASS HEADING LISTENER ---
     function handleDeviceOrientation(e) {
+      if (controlMode === 'manual') return; // manual mode is fully compass-agnostic
       let heading = null;
       if (e.webkitCompassHeading !== undefined && e.webkitCompassHeading !== null) {
         heading = e.webkitCompassHeading; // iOS Compass
@@ -539,7 +540,7 @@
         gpsSignalLost = false;
         userContainer.classList.remove('gps-lost');
       }
-      if (heading !== null && !isNaN(heading)) {
+      if (heading !== null && !isNaN(heading) && controlMode !== 'manual') {
         hasGpsHeading = true;
         gpsHeadingFreshUntil = performance.now() + GPS_HEADING_FRESH_MS;
         userHeading = smoothAngle(userHeading, heading, 0.5);
