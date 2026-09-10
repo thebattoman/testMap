@@ -454,10 +454,14 @@
 
       hasCompassHeading = heading !== null && !isNaN(heading);
       if (hasCompassHeading && controlMode === 'gps') {
-        // Let a fresh GPS heading stay authoritative; otherwise blend the
-        // magnetometer instead of hard-setting so the vision cone stops trembling.
+        // Let a fresh GPS heading stay authoritative; otherwise ramp the
+        // magnetometer blend from 0 → 0.12 over ~1s so the vision cone
+        // glides back instead of snapping.
         if (performance.now() >= gpsHeadingFreshUntil) {
-          userHeading = smoothAngle(userHeading, heading, 0.12);
+          const elapsed = performance.now() - gpsHeadingFreshUntil;
+          const engageAlpha = Math.min(0.12, (elapsed / 1000) * 0.12);
+          userHeading = smoothAngle(userHeading, heading, engageAlpha);
+          compassEngageUntil = performance.now() + 1000;
           updateVisionConeOrientation();
         }
       }
@@ -488,13 +492,13 @@
     const ON_NETWORK_THRESHOLD = GPS_DEADBAND * 4; // ~6m — from path -> hide helper line
 
     // Soft lane attractor: pull the raw GPS fix toward the nearest walkway segment
-    const LANE_ATTRACT_RADIUS_M = 4;      // meters — max cross-track distance to attract
+    const LANE_ATTRACT_RADIUS_M = 5;      // meters — max cross-track distance to attract
     const GPS_MAX_SPEED_MPS = 2.5;        // brisk walking pace clamp for dead-reckoning
     const GPS_STALE_AFTER_MS = 1500;      // fixes older than this stop extrapolation
     const GPS_VELOCITY_DECAY = 0.85;      // per-frame decay once fixes go stale (frame-graceful settle)
-    const TARGET_SMOOTH_HZ = 3;           // two-stage filter: target catches a fix in ~0.33s
+    const TARGET_SMOOTH_HZ = 2.5;         // two-stage filter: target catches a fix in ~0.4s
     const POS_SMOOTH_HZ = 12;             // displayed position follows the smoothed target in ~80ms
-    const VEL_FILTER_ALPHA = 0.35;        // per-fix EMA on the velocity vector (m/s)
+    const VEL_FILTER_ALPHA = 0.25;        // per-fix EMA on the velocity vector (m/s)
     const GPS_HEADING_FRESH_MS = 3000;    // GPS heading stays authoritative this long after a fix
 
     let gpsVelMpsE = 0;                   // m/s east, EMA-filtered from fix displacement
@@ -502,6 +506,7 @@
     let smoothTargE = 0;                  // two-stage filter: smoothed target offset (m east of display)
     let smoothTargN = 0;                  // two-stage filter: smoothed target offset (m north of display)
     let gpsHeadingFreshUntil = 0;         // while now < this, smoothed compass stays quiet
+    let compassEngageUntil = 0;            // smooth ramp for compass after GPS freshness expires
     let lastLoopTime = performance.now(); // frame-rate independent GPS smoothing
     let gpsSpeedEstimate = 0;             // m/s, smoothed from fix-to-fix displacement
     let lastFixLat = null;
@@ -513,6 +518,8 @@
     const CAMERA_DEADBAND_M = 8;                        // camera pans when marker moves beyond this (meters)
     let cameraCenter = [...START_COORDINATE];           // last position camera was centered on
     let userInteracting = false;   // free-camera mode: user manipulated the camera manually
+    let lastUserInteractTime = 0;                     // timestamp of last user map interaction
+    const FOLLOW_DELAY_MS = 2000;                     // ms after user drag before camera re-follows
 
     let targetCoords = [...START_COORDINATE];  // GPS-filtered destination
 
@@ -538,7 +545,7 @@
       if (heading !== null && !isNaN(heading) && controlMode !== 'manual') {
         hasGpsHeading = true;
         gpsHeadingFreshUntil = performance.now() + GPS_HEADING_FRESH_MS;
-        userHeading = smoothAngle(userHeading, heading, 0.5);
+        userHeading = smoothAngle(userHeading, heading, 0.25);
       }
 
       if (typeof userMarker === 'undefined') return;
@@ -660,6 +667,7 @@
         joystickRight.classList.add('active');
         if (gpsRecalibrateBtn) gpsRecalibrateBtn.style.display = 'none';
         targetCoords = [...currentUserCoords];  // sync GPS pipeline for re-entry
+        cameraCenter = [...currentUserCoords];   // reset follow anchor on mode switch
         userContainer.style.display = '';
         map.easeTo({ center: currentUserCoords, zoom: INITIAL_ZOOM, pitch: DEFAULT_PITCH, bearing: DEFAULT_BEARING, duration: 800 });
       } else {
@@ -669,6 +677,7 @@
         joystickLeft.classList.remove('active');
         joystickRight.classList.remove('active');
         if (gpsRecalibrateBtn) gpsRecalibrateBtn.style.display = '';
+        cameraCenter = [...currentUserCoords];   // reset follow anchor on mode switch
         initDeviceOrientation();
       }
     }
@@ -1062,6 +1071,13 @@
       if (e.originalEvent) setUserInteracting(true);
     });
 
+    map.on('moveend', (e) => {
+      if (e.originalEvent) {
+        lastUserInteractTime = performance.now();
+        userInteracting = false;
+      }
+    });
+
     // One-shot FPV framing used by explicit controls (compass, FPV/topdown toggle).
     function updateFPVCamera() {
       map.easeTo({
@@ -1102,6 +1118,7 @@
     function toggleFPVMode(enabled) {
       if (!enabled && isInteriorView) exitInteriorView();
       resetCameraFollow();
+      cameraCenter = [...currentUserCoords];   // reset follow anchor on FPV toggle
       if (enabled && isInteriorView) { updateFPVCamera(); return; }
       if (enabled) {
         updateFPVCamera();
@@ -1991,7 +2008,7 @@
     function handleMovementLoop() {
       // Frame-rate independent time step for the GPS smoothing cascade.
       const loopNow = performance.now();
-      const dtSec = Math.min(0.15, Math.max(0, (loopNow - lastLoopTime) / 1000));
+      const dtSec = Math.min(0.15, Math.max(0.001, (loopNow - lastLoopTime) / 1000));
       lastLoopTime = loopNow;
 
       // --- COMPASS JOYSTICK (drag to rotate bearing / tilt pitch) ---
@@ -2019,8 +2036,10 @@
 
         if (now - lastGpsFixTime >= GPS_STALE_AFTER_MS) {
           // Graceful settle: ease velocity toward zero, no dead-reckoning.
-          gpsVelMpsE *= GPS_VELOCITY_DECAY;
-          gpsVelMpsN *= GPS_VELOCITY_DECAY;
+          // Time-based decay so behavior is consistent across frame rates.
+          const decayFactor = Math.pow(GPS_VELOCITY_DECAY, dtSec * 60);
+          gpsVelMpsE *= decayFactor;
+          gpsVelMpsN *= decayFactor;
         }
 
         // Stage 1: smoothed target dead-reckons + chases the attracted fix.
@@ -2042,6 +2061,19 @@
         userMarker.setLngLat(currentUserCoords);
         updateVisionConeOrientation();
         checkArrival();
+
+        // Camera follow: re-center when user isn't interacting and marker drifted
+        if (!userInteracting && !cameraFocusDiving && !isInteriorView) {
+          if (performance.now() - lastUserInteractTime > FOLLOW_DELAY_MS) {
+            const dlng = currentUserCoords[0] - cameraCenter[0];
+            const dlat = currentUserCoords[1] - cameraCenter[1];
+            const distM = Math.hypot(dlng * cosLat * 111320, dlat * 111320);
+            if (distM > CAMERA_DEADBAND_M) {
+              map.panTo(currentUserCoords, { duration: 300, essential: true });
+              cameraCenter = [...currentUserCoords];
+            }
+          }
+        }
       }
 
       if (controlMode === 'manual' && !pongActive) {
