@@ -1020,17 +1020,39 @@
         this._map = map;
         this._container = document.createElement('div');
         this._container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
-        
+
         this._button = document.createElement('button');
         this._button.className = 'topdown-btn';
         this._button.type = 'button';
         this._button.title = 'Toggle Top-Down / FPV View';
-        
+
+        this._icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        this._icon.setAttribute('viewBox', '0 0 24 24');
+        this._icon.setAttribute('width', '18');
+        this._icon.setAttribute('height', '18');
+        this._icon.setAttribute('fill', 'none');
+        this._icon.setAttribute('stroke', '#1e3a8a');
+        this._icon.setAttribute('stroke-width', '2');
+        this._icon.setAttribute('stroke-linecap', 'round');
+        this._icon.setAttribute('stroke-linejoin', 'round');
+        this._icon.classList.add('fpv-icon');
+        this._icon.innerHTML = '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>';
+
+        this._label = document.createElement('span');
+        this._label.className = 'fpv-label';
+        this._label.textContent = 'FPV';
+
+        this._button.appendChild(this._icon);
+        this._button.appendChild(this._label);
+
         this._button.addEventListener('click', () => {
           isFPVEnabled = !isFPVEnabled;
           this._button.classList.toggle('active', !isFPVEnabled);
+          this._button.classList.toggle('fpv-active', isFPVEnabled);
           toggleFPVMode(isFPVEnabled);
         });
+
+        this._button.classList.toggle('fpv-active', isFPVEnabled);
 
         this._container.appendChild(this._button);
         return this._container;

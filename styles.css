@@ -404,15 +404,41 @@
 
     /* --- CUSTOM MAP CONTROLS (TOP DOWN VIEW TOGGLE) --- */
     .topdown-btn {
-      background-image: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%231e3a8a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>');
-      background-repeat: no-repeat;
-      background-position: center;
-      background-size: 18px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1px;
     }
 
     .topdown-btn.active {
       background-color: #eff6ff;
       border-left: 3px solid #e11d48 !important;
+    }
+
+    /* FPV active: brand blue bg + glow + white icon */
+    .topdown-btn.fpv-active {
+      background-color: #1e3a8a;
+      box-shadow: 0 0 12px rgba(30, 58, 138, 0.6);
+    }
+
+    .topdown-btn.fpv-active .fpv-icon {
+      stroke: #ffffff;
+    }
+
+    /* FPV label: hidden by default, shown in FPV mode */
+    .fpv-label {
+      display: none;
+      font-size: 8px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      line-height: 1;
+    }
+
+    .topdown-btn.fpv-active .fpv-label {
+      display: block;
     }
 
     /* --- GALLERY BOTTOM-LEFT TOGGLE ICON --- */
